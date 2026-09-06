@@ -150,7 +150,13 @@ export function Inspector() {
         </h2>
         <span className="tabular text-[10px] text-ash-400/70">{tiles.length}</span>
       </header>
-      <div className="grid grid-cols-3 gap-1.5 overflow-y-auto px-2 pb-2">
+      {/*
+        Две колонки, а не три: плитка в сто пикселей читается с иконкой и
+        подписью, плитка в шестьдесят — только с иконкой, и подпись под ней
+        приходилось разбирать. В узком ящике на телефоне ширины больше, и там
+        три колонки дают те же сто пикселей.
+      */}
+      <div className={`grid gap-2 overflow-y-auto px-2.5 pb-2.5 ${compact ? 'grid-cols-3' : 'grid-cols-2'}`}>
         {tiles.map((tile) => {
           const on = tile.id === open;
           return (
@@ -160,16 +166,16 @@ export function Inspector() {
               aria-pressed={on}
               aria-label={tile.label}
               onClick={() => setOpen(on ? null : tile.id)}
-              className={`flex aspect-square flex-col items-center justify-center gap-1.5 rounded-lg border transition-colors ${
+              className={`flex aspect-square flex-col items-center justify-center gap-2 rounded-xl border transition-colors ${
                 on
                   ? 'border-brass-700/60 bg-brass-500/15 text-brass-300'
                   : 'border-ink-800 bg-ink-850 text-ash-400 hover:border-ink-700 hover:bg-ink-800 hover:text-ash-100'
               }`}
             >
-              <span className="flex h-5 w-5 items-center justify-center [&>svg]:h-[17px] [&>svg]:w-[17px]">
+              <span className="flex h-6 w-6 items-center justify-center [&>svg]:h-[22px] [&>svg]:w-[22px]">
                 {tile.icon}
               </span>
-              <span className="text-[9.5px] leading-none">{tile.label}</span>
+              <span className="text-[11px] leading-none">{tile.label}</span>
             </button>
           );
         })}

@@ -47,7 +47,7 @@ export interface Hsl {
  * слива, песок, бутылка. Ровно те краски, которые переживают сорок томов в
  * одном ряду, не превращая полку в радугу.
  */
-const CLOTH_HUES = [355, 12, 28, 42, 96, 152, 178, 205, 224, 258, 292, 328];
+export const CLOTH_HUES = [355, 12, 28, 42, 96, 152, 178, 205, 224, 258, 292, 328];
 
 /** Дешёвый строковый хэш. Нужен для выбора тона, не для криптографии. */
 export function hashString(input: string): number {
@@ -82,8 +82,8 @@ export function hslToHex({ h, s, l }: Hsl): string {
 function toCloth(hsl: Hsl): Hsl {
   return {
     h: ((hsl.h % 360) + 360) % 360,
-    s: Math.min(Math.max(hsl.s, 0.14), 0.52),
-    l: Math.min(Math.max(hsl.l, 0.15), 0.44),
+    s: Math.min(Math.max(hsl.s, 0.14), 0.56),
+    l: Math.min(Math.max(hsl.l, 0.15), 0.58),
   };
 }
 
@@ -103,8 +103,10 @@ export function clothFor(seed: string): { cloth: string; hash: number } {
       toCloth({
         h: CLOTH_HUES[hash % CLOTH_HUES.length],
         // Разброс внутри тона — чтобы два тома одного цвета всё же различались.
-        s: 0.2 + ((hash >>> 8) % 22) / 100,
-        l: 0.19 + ((hash >>> 16) % 20) / 100,
+        // Светлота от трети до половины: тёмные, как прежде, тона делали из
+        // полки кабинет; ряд в средних тонах читается рядом цветов.
+        s: 0.24 + ((hash >>> 8) % 24) / 100,
+        l: 0.3 + ((hash >>> 16) % 22) / 100,
       }),
     ),
   };

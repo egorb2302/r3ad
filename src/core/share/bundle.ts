@@ -28,6 +28,8 @@ import type { VolumeRecord, VolumeSource } from '../library/volume';
 import type { SpinePalette } from '../library/palette';
 import {
   DEFAULT_SCENE,
+  legacyThemeFor,
+  themeFor,
   themeWithCover,
   type BookTheme,
   type SceneTheme,
@@ -44,8 +46,12 @@ export const BUNDLE_FORMAT = 'r3ad';
  * бандла — сцена. Первую версию читаем и переводим (`parseBundle`), и это не
  * вежливость к чужим файлам, а необходимость: тем же форматом записана
  * локальная база, то есть полка всех, кто открывал сайт до этой недели.
+ *
+ * Третья: форма записи та же, изменилась выводимая тема — светлее и без
+ * потёртости. Номер поднят ради одного: узнать при чтении, что темы в записи
+ * выводились старыми правилами, и заменить нетронутые (`refreshVolume`).
  */
-export const BUNDLE_VERSION = 2;
+export const BUNDLE_VERSION = 3;
 
 /**
  * Что кладём (SPEC §11.2). Порядок — по возрастанию: каждый следующий объём
@@ -387,10 +393,12 @@ export function parseBundle(input: unknown): Bundle {
   }
   if (!Array.isArray(bundle.volumes)) throw new Error('the bundle has no shelf in it');
 
+  const dated = bundle.version < 3;
+
   return {
     ...bundle,
     version: BUNDLE_VERSION,
-    volumes: bundle.volumes.map(dressVolume),
+    volumes: bundle.volumes.map((volume) => refreshVolume(dressVolume(volume), dated)),
     journals: Array.isArray(bundle.journals) ? bundle.journals : [],
     clippings: Array.isArray(bundle.clippings) ? bundle.clippings : [],
     assets: Array.isArray(bundle.assets) ? bundle.assets : [],
@@ -423,6 +431,29 @@ function dressVolume(volume: StoredVolume): BundleVolume {
       palette?.cloth ?? '#3c4d63',
     ),
   };
+}
+
+/**
+ * Тема из записи прошлой версии — в нынешнюю выводимую, если её не трогали.
+ *
+ * Полка из базы второй версии несла бы старые тёмные корешки ещё сколько
+ * угодно: тема хранится с томом, и то, что она когда-то была выведена, а не
+ * выбрана, из записи не видно. Видно из сравнения: совпала с тем, что выводили
+ * тогда, — значит, не трогали, и её место занимает то, что выводят сейчас.
+ * Переодетый руками том не совпадёт и останется как есть.
+ */
+function refreshVolume(volume: BundleVolume, dated: boolean): BundleVolume {
+  if (!dated) return volume;
+
+  // Зерно темы у тома и у тетради разное (см. library/volume.ts).
+  const seed =
+    volume.kind === 'journal'
+      ? `journal|${volume.title}|${volume.id}`
+      : `${volume.title}|${volume.author}`;
+  const stored = JSON.stringify(volume.theme);
+  if (stored !== JSON.stringify(legacyThemeFor(seed))) return volume;
+
+  return { ...volume, theme: themeFor(seed) };
 }
 
 export type { StoredAsset };

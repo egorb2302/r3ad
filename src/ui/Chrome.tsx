@@ -24,7 +24,6 @@ export function Topbar() {
   const currentSheet = useBook((s) => s.currentSheet);
 
   const view = useLibrary((s) => s.view);
-  const setView = useLibrary((s) => s.setView);
   const desk = useLibrary((s) => s.desk);
   const flight = useLibrary((s) => s.flight);
   const shelve = useLibrary((s) => s.shelve);
@@ -57,15 +56,11 @@ export function Topbar() {
           <span className="font-medium tracking-tight text-brass-500">r3ad</span>
         </span>
         <span className="text-ink-600">/</span>
-        <button
-          type="button"
-          onClick={() => setView(atDesk ? 'case' : 'desk')}
-          title={atDesk ? 'Look at the bookcase (Esc)' : 'Back to the desk (Esc)'}
-          className="flex items-center gap-1 rounded px-1 text-ash-400 transition-colors hover:bg-ink-800 hover:text-ash-100"
-        >
+        {/* Где мы — подпись, а не кнопка: переход живёт в углу сцены (см. ViewSwitch). */}
+        <span className="flex items-center gap-1 px-1 text-ash-400">
           <Icon name={atDesk ? 'desk' : 'bookcase'} size={13} />
           {atDesk ? 'Desk' : 'Bookcase'}
-        </button>
+        </span>
         {atDesk ? (
           <>
             <span className="text-ink-600">/</span>

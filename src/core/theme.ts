@@ -27,8 +27,10 @@
  * страниц стоит на месте, а корешок пухнет.
  */
 import {
+  CLOTH_HUES,
   clothFor,
   clothFromColor,
+  hashString,
   hexToHsl,
   hslToHex,
   type Hsl,
@@ -171,16 +173,18 @@ export const stamped = (theme: BookTheme) => theme.cover.foil !== 'none';
 /**
  * Материал по хэшу.
  *
- * Доли подобраны так, как выглядит настоящая полка: тканевый переплёт —
- * основная масса, кожа и картон вокруг, супер-обложка редкость. Ряд из сорока
- * одинаково одетых книг читается как стопка коробок, а не как библиотека.
+ * Доли подобраны так, как выглядит полка сегодняшних изданий: ткань и картон —
+ * основная масса, супер-обложки вокруг, кожа редкость. До этого кожа шла
+ * второй, и полка из сорока томов выглядела кабинетом нотариуса. Ряд из сорока
+ * одинаково одетых книг всё равно читается как стопка коробок, а не как
+ * библиотека, — отсюда четыре материала, а не один.
  */
 function materialFor(hash: number): CoverMaterial {
   const roll = hash % 100;
-  if (roll < 50) return 'cloth';
-  if (roll < 72) return 'leather';
-  if (roll < 92) return 'board';
-  return 'jacket';
+  if (roll < 52) return 'cloth';
+  if (roll < 78) return 'board';
+  if (roll < 94) return 'jacket';
+  return 'leather';
 }
 
 /** Тема из цвета крышки. Всё остальное — производные и умолчания. */
@@ -193,8 +197,9 @@ function themeFromCloth(cloth: string, hash: number): BookTheme {
       color: cloth,
       // Золото на тёмном поле, блинт — на светлом: на светлой ткани золото
       // почти того же тона, что и краска крышки, и тиснение пропадает.
-      foil: l < 0.34 ? 'gold' : 'blind',
-      wear: ((hash >>> 4) % 26) / 100,
+      foil: l < 0.36 ? 'gold' : 'blind',
+      // Из типографии, а не из букинистики: потёрт лишь каждый пятый, и слегка.
+      wear: (hash >>> 4) % 5 === 0 ? ((hash >>> 8) % 12) / 100 : 0,
     },
     paper: { tint: 'cream', gsm: DEFAULT_GSM, edge: 'plain', edgeColor: '#8d3f3f' },
     ribbon: null,
@@ -225,6 +230,38 @@ export function themeWithCover(seed: string, cloth: string): BookTheme {
 /** Совпадает ли тема с выводимой из названия. Ответ решает, писать ли её в ссылку. */
 export function isDerived(theme: BookTheme, seed: string): boolean {
   return JSON.stringify(theme) === JSON.stringify(themeFor(seed));
+}
+
+/**
+ * Тема, какой её выводила версия до визуального прохода.
+ *
+ * Тёмные переплётные тона, кожа второй по частоте, потёртость у каждого —
+ * полка нотариуса. Нужна ровно в одном месте: при подъёме бандла второй
+ * версии (`share/bundle.ts`). Том, чью тему не трогали, обязан получить новую
+ * выводимую, а том, который переодевали руками, — остаться в своём; отличить
+ * одно от другого можно, только зная, что выводилось раньше. Правила
+ * повторены здесь буквально, а не вызваны: они и есть то, что изменилось.
+ */
+export function legacyThemeFor(seed: string): BookTheme {
+  const hash = hashString(seed);
+  const cloth = hslToHex({
+    h: CLOTH_HUES[hash % CLOTH_HUES.length],
+    s: Math.min(Math.max(0.2 + ((hash >>> 8) % 22) / 100, 0.14), 0.52),
+    l: Math.min(Math.max(0.19 + ((hash >>> 16) % 20) / 100, 0.15), 0.44),
+  });
+  const roll = hash % 100;
+  const { l } = hexToHsl(cloth);
+
+  return {
+    cover: {
+      material: roll < 50 ? 'cloth' : roll < 72 ? 'leather' : roll < 92 ? 'board' : 'jacket',
+      color: cloth,
+      foil: l < 0.34 ? 'gold' : 'blind',
+      wear: ((hash >>> 4) % 26) / 100,
+    },
+    paper: { tint: 'cream', gsm: DEFAULT_GSM, edge: 'plain', edgeColor: '#8d3f3f' },
+    ribbon: null,
+  };
 }
 
 /* ─── Пресеты переплёта ─────────────────────────────────────────────────── */

@@ -19,6 +19,7 @@ import dynamic from 'next/dynamic';
 import { Navigator } from './Navigator';
 import { Inspector } from './Inspector';
 import { Topbar, Toolbar } from './Chrome';
+import { Icon } from './icons';
 import { FlatEditor } from './journal/FlatEditor';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
@@ -170,6 +171,13 @@ export function SceneWorkspace({ boot }: { boot: BootStage }) {
           {boot === 'ready' ? <Viewport /> : <div className="h-full w-full bg-ink-950" />}
 
           {toolbar && <Toolbar />}
+          {/*
+           * Переход стол ↔ полка — своя кнопка в углу сцены, а не строка в шапке.
+           * Это не навигация по оболочке, а поворот головы в комнате, и жить ему
+           * место там же, где стоит тулбар: над сценой. Над страницей тетради
+           * её нет: оттуда сперва поднимаются (Esc), потом идут к полке.
+           */}
+          {!flat && <ViewSwitch />}
           {/* Ключ — номер страницы: у каждой свой масштаб и своя панорама */}
           {flat && <FlatEditor key={flatPage} tint={deskTint} />}
 
@@ -241,7 +249,7 @@ export function SceneWorkspace({ boot }: { boot: BootStage }) {
               aria-label="Inspector"
               aria-hidden={!panels}
               inert={!panels}
-              className={`absolute inset-y-0 right-0 z-30 w-[214px] border-l border-ink-800 bg-ink-900/96 shadow-[-8px_0_32px_rgba(0,0,0,0.45)] backdrop-blur transition-transform duration-200 ease-out ${
+              className={`absolute inset-y-0 right-0 z-30 w-[232px] border-l border-ink-800 bg-ink-900/96 shadow-[-8px_0_32px_rgba(0,0,0,0.45)] backdrop-blur transition-transform duration-200 ease-out ${
                 panels ? 'translate-x-0' : 'translate-x-full shadow-none'
               }`}
             >
@@ -251,6 +259,39 @@ export function SceneWorkspace({ boot }: { boot: BootStage }) {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Кнопка «к полке» / «к столу».
+ *
+ * В правом нижнем углу сцены; когда выдвинут инспектор, отъезжает влево на
+ * его ширину, чтобы не оказаться под ним. На телефоне ящик один и слева, и
+ * кнопке ничто не мешает.
+ */
+function ViewSwitch() {
+  const view = useLibrary((s) => s.view);
+  const setView = useLibrary((s) => s.setView);
+  const flight = useLibrary((s) => s.flight);
+  const panels = useShell((s) => s.panels);
+  const compact = useShell((s) => s.device.compact);
+  const atDesk = view !== 'case';
+
+  return (
+    <button
+      type="button"
+      onClick={() => setView(atDesk ? 'case' : 'desk')}
+      disabled={flight !== null}
+      title={atDesk ? 'Look at the bookcase (Esc)' : 'Back to the desk (Esc)'}
+      className={`pointer-events-auto absolute bottom-4 z-20 flex h-9 items-center gap-2 rounded-xl border border-ink-700 bg-ink-900/92 pl-2.5 pr-3.5 text-[11.5px] text-ash-100 shadow-[0_8px_24px_rgba(0,0,0,0.4)] backdrop-blur transition-[right,background-color,color] duration-200 ease-out hover:bg-ink-800 disabled:opacity-50 ${
+        panels && !compact ? 'right-[248px]' : 'right-4'
+      }`}
+    >
+      <span className="flex h-6 w-6 items-center justify-center rounded-md bg-brass-500/20 text-brass-300">
+        <Icon name={atDesk ? 'bookcase' : 'desk'} size={15} />
+      </span>
+      {atDesk ? 'Bookcase' : 'Desk'}
+    </button>
   );
 }
 

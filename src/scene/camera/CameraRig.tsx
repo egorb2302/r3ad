@@ -20,7 +20,8 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useStore } from '@react-three/fiber';
 import * as THREE from 'three';
-import { CASE_HEIGHT, CASE_WIDTH, CASE_X, CASE_Y, CASE_Z } from '../bookcase/caseGeometry';
+import { CASE_HEIGHT, CASE_WIDTH, CASE_X, CASE_Y, CASE_Z, FLOOR_Y } from '../bookcase/caseGeometry';
+import { WALL_X, WALL_Z } from '../room/decor';
 import { COVER_H, COVER_W, GUTTER, TRIM_H, TRIM_W } from '../geometry';
 import { easeInOutCubic } from '../flight';
 import { flightFocus, flightPosition } from '../route';
@@ -43,6 +44,8 @@ interface OrbitLike {
   target: THREE.Vector3;
   minDistance: number;
   maxDistance: number;
+  minAzimuthAngle: number;
+  maxAzimuthAngle: number;
   update: () => void;
 }
 
@@ -61,6 +64,15 @@ interface Shot {
   free: boolean;
   minDistance: number;
   maxDistance: number;
+  /**
+   * Пределы поворота вокруг цели, в радианах от «спереди».
+   *
+   * У комнаты есть стены, и облёт, который в пустоте был безобиден, теперь
+   * уводит камеру сквозь них: за стеллаж, за стену, под пол. Пределы считаются
+   * от расстояния, на котором камера встаёт по приезде, — вращают обычно с
+   * него.
+   */
+  azimuth: [number, number];
 }
 
 /** Дистанция, с которой предмет заданных габаритов целиком влезает в кадр. */
@@ -76,6 +88,32 @@ function fitDistance(
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+/** Воздух между камерой и стеной или полом: ближе камера в комнате не бывает. */
+const AIR = 12;
+
+/** Без пределов: пока камера едет, её ведут руками, и зажимать нечего. */
+const FREE_AZIMUTH: [number, number] = [-Infinity, Infinity];
+
+/**
+ * Не выпускать камеру из комнаты.
+ *
+ * Пределы поворота — первая линия: они не дают камере разогнаться к стене.
+ * Но они считаются на одном расстоянии, а колесо мыши меняет его, и с
+ * дальней дистанции даже разрешённый угол выводит за стену. Поэтому положение
+ * ещё и зажимается коробкой комнаты — на каждом кадре, после того как своё
+ * слово сказали OrbitControls. Взгляд после сдвига наводится на цель заново:
+ * иначе камера, прижатая к стене, смотрела бы туда, куда смотрела до сдвига.
+ */
+function keepInRoom(camera: THREE.Camera, controls: OrbitLike) {
+  const p = camera.position;
+  const x = THREE.MathUtils.clamp(p.x, -WALL_X + AIR, WALL_X - AIR);
+  const y = Math.max(p.y, FLOOR_Y + AIR);
+  const z = Math.max(p.z, WALL_Z + AIR);
+  if (x === p.x && y === p.y && z === p.z) return;
+  p.set(x, y, z);
+  camera.lookAt(controls.target);
+}
 
 /** Ширина раскрытой книги от обреза до обреза. */
 const SPREAD_WIDTH = 2 * (GUTTER + COVER_W);
@@ -105,6 +143,7 @@ function shotFor(view: CameraView, flat: FlatFocus | null, fov: number, aspect: 
       free: false,
       minDistance: distance,
       maxDistance: distance,
+      azimuth: FREE_AZIMUTH,
     };
   }
 
@@ -116,13 +155,22 @@ function shotFor(view: CameraView, flat: FlatFocus | null, fov: number, aspect: 
    */
   if (view === 'case') {
     const distance = fitDistance(CASE_WIDTH, CASE_HEIGHT, fov, aspect, MARGIN);
+    /*
+     * Стеллаж стоит у левой стены, и влево камере почти некуда: до стены
+     * полметра. Вправо — вся комната. Предел с каждой стороны — тот угол, на
+     * котором камера с этого расстояния упрётся в стену; вправо ещё и не
+     * дальше ~65°, иначе полку видно только сбоку.
+     */
+    const left = Math.asin(Math.min(1, (CASE_X + WALL_X - AIR) / distance));
+    const right = Math.asin(Math.min(1, (WALL_X - CASE_X - AIR) / distance));
     return {
       position: new THREE.Vector3(CASE_X, CASE_EYE, CASE_Z + distance),
       target: new THREE.Vector3(CASE_X, CASE_Y + CASE_HEIGHT / 2, CASE_Z),
       up: UP,
       free: true,
       minDistance: 40,
-      maxDistance: distance + 120,
+      maxDistance: distance + 60,
+      azimuth: [-left, Math.min(right, 1.15)],
     };
   }
 
@@ -148,6 +196,8 @@ function shotFor(view: CameraView, flat: FlatFocus | null, fov: number, aspect: 
     free: true,
     minDistance: 26,
     maxDistance: Math.max(150, distance + 40),
+    // Почти кругом: стена за столом далеко, и заглянуть на книгу «от окна» можно.
+    azimuth: [-1.9, 1.9],
   };
 }
 
@@ -211,7 +261,10 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
     };
     lastShot.current = next;
 
-    if (controls) controls.enabled = false;
+    if (controls) {
+      controls.enabled = false;
+      [controls.minAzimuthAngle, controls.maxAzimuthAngle] = FREE_AZIMUTH;
+    }
   }, [store, view, flatX, flatY]);
 
   useFrame((state, delta) => {
@@ -222,6 +275,9 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
     const shot = move ? move.shot : lastShot.current;
     const focus = flightFocus();
     const pinned = shot ? !shot.free : false;
+
+    // Свободный облёт: единственное, что здесь нужно, — не выпустить из комнаты.
+    if (!move && !pinned && focus <= 0) keepInRoom(state.camera, controls);
 
     if (!move && focus <= 0 && !following.current && !pinned) return;
 
@@ -285,6 +341,7 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
     if (move && move.t >= 1) {
       controls.minDistance = move.shot.minDistance;
       controls.maxDistance = move.shot.maxDistance;
+      [controls.minAzimuthAngle, controls.maxAzimuthAngle] = move.shot.azimuth;
       travel.current = null;
     }
 

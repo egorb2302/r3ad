@@ -238,38 +238,64 @@ function pencils(x: number, y: number, z: number): Part[] {
 }
 
 /**
- * Настольная лампа: основание, стойка, наклонное плечо и абажур.
+ * Настольная лампа: основание, стойка, наклонное плечо и купол-абажур.
  *
- * Абажур смотрит на книгу: направление подобрано под ключевой свет пресета
- * «лампа», который стоит слева-сверху, — лампа на столе и есть тот источник.
+ * Абажур — полусфера, а не конус: конус с открытым низом читался как воронка,
+ * купол с ободом и светящимся кругом в проёме читается лампой с любой стороны.
+ * Купол закрыт снизу диском: полусфера с изнанки — дыра, и диск заодно и есть
+ * свет — тёплый круг, который красится безо всякого освещения.
+ *
+ * Купол смотрит на книгу: ключевой свет пресета «лампа» стоит слева-сверху, и
+ * лампа на столе слева и есть тот источник.
  */
 function lamp(x: number, y: number, z: number): { body: Part[]; glow: Part[] } {
-  const post = 26;
-  const lean = -0.95;
-  const arm = 26;
-  const top: [number, number] = [x, y + 1.4 + post];
+  const post = 24;
+  const arm = 24;
+  const lean = -0.85;
+  const shadeR = 9.5;
+  /* Наклон купола: ось смотрит вверх-влево, проём — вниз-вправо, на книгу. */
+  const tilt = 0.5;
+  const axis: [number, number] = [-Math.sin(tilt), Math.cos(tilt)];
+
+  const top: [number, number] = [x, y + 2.2 + post];
   const tip: [number, number] = [top[0] - Math.sin(lean) * arm, top[1] + Math.cos(lean) * arm];
+  const dome: [number, number] = [tip[0] + 2.5, tip[1] + 1];
+  const shadeColor = '#efc27b';
+
+  const along = (k: number): [number, number, number] => [dome[0] + axis[0] * k, dome[1] + axis[1] * k, z];
+
   return {
     body: [
-      { geometry: tube(7.5, 8, 1.4), color: TEAL, at: [x, y + 0.7, z], gloss: true },
-      { geometry: tube(1.1, 1.1, post), color: TEAL, at: [x, y + 1.4 + post / 2, z], gloss: true },
-      { geometry: ball(1.6), color: shade(TEAL, 0.1), at: [top[0], top[1], z], gloss: true },
+      /* Основание: тяжёлый диск и скруглённый холм под стойкой */
+      { geometry: tube(7.5, 8.4, 1.8), color: TEAL, at: [x, y + 0.9, z], gloss: true },
+      { geometry: ball(3), color: TEAL, at: [x, y + 1.6, z], size: [1, 0.5, 1], gloss: true },
+      { geometry: tube(1.2, 1.2, post), color: TEAL, at: [x, y + 2.2 + post / 2, z], gloss: true },
+      /* Шарнир и плечо к книге */
+      { geometry: ball(2), color: shade(TEAL, 0.1), at: [top[0], top[1], z], gloss: true },
       {
-        geometry: tube(0.9, 0.9, arm),
+        geometry: tube(1, 1, arm),
         color: TEAL,
         at: [(top[0] + tip[0]) / 2, (top[1] + tip[1]) / 2, z],
         turn: [0, 0, lean],
         gloss: true,
       },
+      { geometry: ball(2), color: shade(TEAL, 0.1), at: [tip[0], tip[1], z], gloss: true },
+      /* Купол, обод по проёму и колпачок сверху */
       {
-        geometry: new THREE.ConeGeometry(9.5, 11, 24, 1, true),
-        color: TEAL,
-        at: [tip[0] + 1.5, tip[1] - 3, z],
-        turn: [0, 0, -0.55],
+        geometry: new THREE.SphereGeometry(shadeR, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+        color: shadeColor,
+        at: [dome[0], dome[1], z],
+        turn: [0, 0, tilt],
         gloss: true,
       },
+      { geometry: tube(shadeR + 0.5, shadeR + 0.5, 1.6, true), color: shade(shadeColor, -0.18), at: along(0), turn: [0, 0, tilt], gloss: true },
+      { geometry: ball(1.6), color: shade(shadeColor, -0.18), at: along(shadeR - 0.4), gloss: true },
     ],
-    glow: [{ geometry: ball(2.4), color: '#fff1cf', at: [tip[0] + 2.8, tip[1] - 5.6, z] }],
+    glow: [
+      /* Свет в проёме — диск, и лампочка, чуть выглядывающая из-под него */
+      { geometry: tube(shadeR - 0.2, shadeR - 0.2, 0.5), color: '#ffe3ad', at: along(-0.4), turn: [0, 0, tilt] },
+      { geometry: ball(2.4), color: '#fff3d6', at: along(-1.6), size: [1, 0.7, 1] },
+    ],
   };
 }
 
@@ -391,9 +417,15 @@ export function buildRoom(palette: RoomPalette): RoomShapes {
     ...picture(108, 76, WALL_Z + 1.4, trim),
     ...stack(116, 31.2, WALL_Z + 9, 12, 13, 5),
     ...succulent(98, 31.2, WALL_Z + 9),
-    /* Растения на полу: фикус между стеллажом и столом, кактус у правой стены */
-    ...ficus(-74, -70),
-    ...cactus(128, WALL_Z + 22),
+    /*
+     * Растения на полу. Фикус — в правом углу у окна: между стеллажом и
+     * столом он стоял вплотную к боковине и с полки его крона сливалась с
+     * краем стеллажа в одно тёмное пятно. В углу ему есть место, и с полки он
+     * виден отдельно, справа. Кактус, наоборот, мал и низок — ему в просвете
+     * у стола самое место, и стеллаж он не загораживает.
+     */
+    ...ficus(142, -56),
+    ...cactus(-74, -22),
     /*
      * На столе: кружка и стопка справа, суккулент слева, карандаши дальше.
      * Рабочий ракурс показывает от книги примерно по тридцать сантиметров в

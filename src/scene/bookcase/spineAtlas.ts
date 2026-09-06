@@ -203,7 +203,7 @@ class SpineAtlas {
     });
 
     this.paintBands(T, H, head);
-    this.paintPanel(T, H, panel, foil);
+    this.paintBand(T, H, panel, foil);
     if (stamped(theme)) this.paintText(T, H, volume, foil);
     paintWear(this.ctx, T, H, theme.cover.wear, volume.title.length * 131 + 7);
     this.paintRelief(T, H);
@@ -226,18 +226,29 @@ class SpineAtlas {
     }
   }
 
-  /** Накладка под название и линейки, которыми набирают поле корешка. */
-  private paintPanel(T: number, H: number, panel: string, foil: string) {
+  /**
+   * Выкладка корешка: одна плашка у головки и точка у хвоста.
+   *
+   * До этого корешок набирался как у тома из букинистики: накладка под
+   * название посередине и четыре золотые линейки. Ряд из сорока таких стоял
+   * на полке антикварным, а оболочка вокруг — тёмная, ровная, с одним
+   * латунным акцентом — с ним не вязалась. Теперь у корешка та же логика, что
+   * у шапки: поле одного цвета, полоса-акцент и издательская точка. Название
+   * стоит на самом поле, без накладки.
+   */
+  private paintBand(T: number, H: number, panel: string, foil: string) {
     const ctx = this.ctx;
     const inset = T * 0.11;
+    const rule = Math.max(2, T * 0.012);
 
     ctx.fillStyle = panel;
-    ctx.fillRect(inset, H * 0.15, T - inset * 2, H * 0.47);
-
+    ctx.fillRect(0, H * 0.022, T, H * 0.095);
     ctx.fillStyle = foil;
-    for (const y of [H * 0.13, H * 0.64, H * 0.77, H * 0.93]) {
-      ctx.fillRect(inset, y, T - inset * 2, Math.max(2, T * 0.012));
-    }
+    ctx.fillRect(inset, H * 0.117 + rule, T - inset * 2, rule);
+
+    ctx.beginPath();
+    ctx.arc(T / 2, H * 0.94, T * 0.075, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   /**
@@ -246,6 +257,10 @@ class SpineAtlas {
    * Читается сверху вниз — так набирают английские и американские издания;
    * европейская традиция снизу вверх осталась бы в другую сторону, и в одном
    * ряду это выглядело бы разнобоем.
+   *
+   * Гарнитура — та же, что у оболочки: гротеск, а не антиква страницы.
+   * Корешок принадлежит полке, полка — интерфейсу, и антиква с золотыми
+   * линейками делала из неё витрину букиниста.
    */
   private paintText(T: number, H: number, volume: VolumeRecord, foil: string) {
     const ctx = this.ctx;
@@ -257,21 +272,21 @@ class SpineAtlas {
     ctx.textAlign = 'center';
 
     this.stamp(volume.title, {
-      along: H * 0.385,
+      along: H * 0.42,
       across: -T * 0.5,
-      size: Math.min(Math.max(T * 0.44, 30), 150),
+      size: Math.min(Math.max(T * 0.42, 30), 140),
       minSize: T * 0.24,
-      limit: H * 0.44,
+      limit: H * 0.5,
       weight: 600,
       color: foil,
     });
 
     this.stamp(volume.author, {
-      along: H * 0.85,
+      along: H * 0.8,
       across: -T * 0.5,
-      size: Math.min(Math.max(T * 0.3, 22), 100),
-      minSize: T * 0.18,
-      limit: H * 0.13,
+      size: Math.min(Math.max(T * 0.27, 22), 90),
+      minSize: T * 0.17,
+      limit: H * 0.16,
       weight: 400,
       color: foil,
     });
@@ -299,7 +314,7 @@ class SpineAtlas {
     },
   ) {
     const ctx = this.ctx;
-    const font = (size: number) => `${options.weight} ${size}px Literata, Georgia, serif`;
+    const font = (size: number) => `${options.weight} ${size}px Inter, system-ui, sans-serif`;
 
     let size = options.size;
     ctx.font = font(size);
@@ -319,8 +334,8 @@ class SpineAtlas {
     if (line !== text) line = `${line}…`;
 
     // Тиснение — вдавленный след плюс краска. Отсюда и объём на плоской карте.
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillText(line, options.along + size * 0.05, options.across + size * 0.06);
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.fillText(line, options.along + size * 0.04, options.across + size * 0.05);
     ctx.fillStyle = options.color;
     ctx.fillText(line, options.along, options.across);
   }
@@ -336,19 +351,20 @@ class SpineAtlas {
     const ctx = this.ctx;
 
     const round = ctx.createLinearGradient(0, 0, T, 0);
-    round.addColorStop(0, 'rgba(0,0,0,0.42)');
-    round.addColorStop(0.16, 'rgba(0,0,0,0.1)');
-    round.addColorStop(0.44, 'rgba(255,255,255,0.11)');
-    round.addColorStop(0.7, 'rgba(0,0,0,0.08)');
-    round.addColorStop(1, 'rgba(0,0,0,0.44)');
+    // Мягче, чем было: глубокие тени у шарниров тоже старили корешок.
+    round.addColorStop(0, 'rgba(0,0,0,0.3)');
+    round.addColorStop(0.16, 'rgba(0,0,0,0.06)');
+    round.addColorStop(0.44, 'rgba(255,255,255,0.1)');
+    round.addColorStop(0.7, 'rgba(0,0,0,0.05)');
+    round.addColorStop(1, 'rgba(0,0,0,0.32)');
     ctx.fillStyle = round;
     ctx.fillRect(0, 0, T, H);
 
     const hinge = ctx.createLinearGradient(0, 0, T, 0);
-    hinge.addColorStop(0, 'rgba(20,12,6,0.5)');
+    hinge.addColorStop(0, 'rgba(20,12,6,0.35)');
     hinge.addColorStop(0.07, 'rgba(20,12,6,0)');
     hinge.addColorStop(0.93, 'rgba(20,12,6,0)');
-    hinge.addColorStop(1, 'rgba(20,12,6,0.5)');
+    hinge.addColorStop(1, 'rgba(20,12,6,0.35)');
     ctx.fillStyle = hinge;
     ctx.fillRect(0, 0, T, H);
   }
