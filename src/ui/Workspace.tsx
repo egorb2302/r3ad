@@ -16,6 +16,7 @@ import { FlatEditor } from './journal/FlatEditor';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { useJournal, type Tool } from '@/store/useJournal';
+import { useClips } from '@/store/useClips';
 import { ensureDocumentFonts, fontCssForText } from '@/core/rasterize/fonts';
 import { probeRasterizer } from '@/core/rasterize/svgRasterizer';
 
@@ -47,6 +48,8 @@ export function Workspace() {
   const flatPage = useJournal((s) => s.flatPage);
   const flat = flatPage !== null;
   const insertImage = useJournal((s) => s.insertImage);
+  const insertClipping = useJournal((s) => s.insertClipping);
+  const unfurl = useClips((s) => s.unfurl);
 
   useEffect(() => {
     let alive = true;
@@ -169,18 +172,38 @@ export function Workspace() {
     if (!flat) return;
 
     const onPaste = (event: ClipboardEvent) => {
+      // В поле ввода вставка принадлежит полю: там набирают текст, а не кладут
+      // на страницу.
+      const target = event.target;
+      if (target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement) return;
+
       const item = Array.from(event.clipboardData?.items ?? []).find((i) =>
         i.type.startsWith('image/'),
       );
       const file = item?.getAsFile();
-      if (!file) return;
+      if (file) {
+        event.preventDefault();
+        void insertImage(file).catch(() => undefined);
+        return;
+      }
+
+      /*
+       * Ссылка в буфере — это сценарий §4.2: вставили тред, он развернулся,
+       * карточка легла на страницу. Отличаем её от обычного текста по форме,
+       * а не по намерению: вставленный абзац ложиться карточкой не должен.
+       */
+      const text = event.clipboardData?.getData('text/plain')?.trim() ?? '';
+      if (!/^https?:\/\/\S+$/i.test(text)) return;
+
       event.preventDefault();
-      void insertImage(file).catch(() => undefined);
+      void unfurl(text).then((clipping) => {
+        if (clipping) insertClipping(clipping);
+      });
     };
 
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
-  }, [flat, insertImage]);
+  }, [flat, insertClipping, insertImage, unfurl]);
 
   /**
    * Счётчик глубины перетаскивания.
@@ -284,4 +307,5 @@ const TOOL_KEYS: Record<string, Tool> = {
   e: 'eraser',
   t: 'text',
   i: 'image',
+  l: 'clip',
 };

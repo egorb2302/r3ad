@@ -12,9 +12,11 @@
  * числу знаков, и оценка пересчитывается вместе с кеглем: полка полнеет и
  * худеет от ползунка так же, как том на столе.
  */
+import type { Clipping } from '../clipping/types';
 import type { DocFormat, ContentDoc } from '../content';
 import type { PageMetrics } from '../typography';
 import { pagesToSheets, PHYS, sheetsToThicknessMm } from '../units';
+import { id as id12 } from '../journal/ids';
 import { journalExtent } from '../journal/journal';
 import type { JournalDoc } from '../journal/types';
 import { paletteFor, type SpinePalette } from './palette';
@@ -30,7 +32,18 @@ export type VolumeSource =
   | { kind: 'synthetic'; options: SyntheticOptions }
   | { kind: 'file'; file: File }
   /** У тетради источник — она сама: текста, который надо разбирать, там нет. */
-  | { kind: 'journal'; journalId: string };
+  | { kind: 'journal'; journalId: string }
+  /**
+   * Досье: том, собранный из вырезок (SPEC §10).
+   *
+   * Вырезки лежат здесь целиком, а не идентификаторами, как обещает §13.
+   * Отступление намеренное и с двумя причинами. Первая — реестра, переживающего
+   * перезагрузку, пока нет: он приедет с локальной базой на M5, а до тех пор
+   * идентификатор указывал бы в пустоту. Вторая важнее: скомпилированный том —
+   * снимок момента, и он не обязан меняться от того, что вырезку потом убрали
+   * из панели. Книга, которая переписывается за спиной, — не книга.
+   */
+  | { kind: 'compiled'; clippings: Clipping[] };
 
 export interface VolumeRecord {
   id: string;
@@ -147,6 +160,46 @@ export function volumeFromDoc(
     source,
     addedAt: Date.now(),
   };
+}
+
+/**
+ * Запись библиотеки для досье.
+ *
+ * Знаков в нём столько, сколько в собранных вырезках, — то есть корешок нужной
+ * толщины стоит на полке сразу, ещё до вёрстки, как и у любой книги (см.
+ * `volumeExtent`). Автор — источники: том собран не человеком, а из них.
+ */
+export function compiledRecord(
+  title: string,
+  clippings: Clipping[],
+  palette?: SpinePalette,
+): VolumeRecord {
+  const names = [...new Set(clippings.map((c) => c.attribution.sourceName))];
+  const charCount = clippings.reduce(
+    (sum, c) => sum + c.body.reduce((n, b) => n + blockChars(b), 0),
+    0,
+  );
+
+  return {
+    id: id12(),
+    kind: 'volume',
+    title,
+    author: names.length <= 2 ? names.join(' · ') : `${names[0]} · ${names[1]} +${names.length - 2}`,
+    format: 'synthetic',
+    language: 'en',
+    charCount,
+    pages: null,
+    pagesKey: null,
+    palette: palette ?? paletteFor(`dossier|${title}|${clippings.length}`),
+    source: { kind: 'compiled', clippings },
+    addedAt: Date.now(),
+  };
+}
+
+function blockChars(block: Clipping['body'][number]): number {
+  if (block.type === 'media') return 0;
+  if (block.type === 'list') return block.items.reduce((n, i) => n + i.length, 0);
+  return block.text.length;
 }
 
 /**

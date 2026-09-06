@@ -77,12 +77,14 @@ export function journalExtent(journal: JournalDoc): JournalExtent {
  *
  * Картинки считаем по хэшам, а не по блокам: один скриншот, вставленный на трёх
  * страницах, — это одна картинка, и в хранилище он тоже один (см. assets.ts).
+ * Вырезки — по идентификаторам, ровно по той же причине.
  */
 export function journalStats(journal: JournalDoc) {
   let strokes = 0;
   let blocks = 0;
   let points = 0;
   const images = new Set<string>();
+  const clips = new Set<string>();
 
   for (const page of journal.pages) {
     for (const layer of page.layers) {
@@ -93,10 +95,11 @@ export function journalStats(journal: JournalDoc) {
         blocks += layer.blocks.length;
         for (const block of layer.blocks) {
           if (block.type === 'image') images.add(block.assetHash);
+          if (block.type === 'clipping') clips.add(block.clippingId);
         }
       }
     }
   }
 
-  return { strokes, blocks, points, images: [...images] };
+  return { strokes, blocks, points, images: [...images], clips: [...clips] };
 }

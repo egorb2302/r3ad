@@ -76,7 +76,16 @@ export type Block =
       /** sha256 блоба в хранилище ассетов: один скриншот на десяти страницах лежит один раз. */
       assetHash: string;
       frame: 'none' | 'polaroid';
-    };
+    }
+  /**
+   * Вырезка по ссылке (SPEC §10, §13).
+   *
+   * Ссылкой, а не копией: одна и та же вырезка ложится и на страницу тетради, и
+   * в скомпилированный том, и хранить её дважды означало бы, что исправленная
+   * атрибуция исправится только в одном месте. Сама вырезка живёт в реестре
+   * вырезок, как картинка — в хранилище ассетов.
+   */
+  | { id: string; type: 'clipping'; rect: Rect; rot: number; clippingId: string };
 
 export type Layer =
   | { id: string; type: 'strokes'; visible: boolean; locked: boolean; strokes: Stroke[] }

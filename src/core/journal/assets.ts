@@ -63,6 +63,41 @@ export function imageFor(hash: string): ImageBitmap | null {
   return store.get(hash)?.bitmap ?? null;
 }
 
+/** Размеры ассета. По ним карточка вырезки считает высоту иллюстрации. */
+export function imageSize(hash: string): { width: number; height: number } | null {
+  const entry = store.get(hash);
+  return entry ? { width: entry.width, height: entry.height } : null;
+}
+
+/**
+ * Ассет как data-URI — для страницы тома.
+ *
+ * Растеризатор превращает страницу в SVG-картинку, а та не грузит ничего
+ * внешнего (SPEC §6.4): даже blob:-ссылка на собственный ассет останется
+ * пустым местом. Поэтому картинка в скомпилированном томе едет байтами внутри
+ * разметки, и строка кэшируется — одна и та же вырезка попадает и в главу, и в
+ * оглавление, а base64 стоит заметно дороже, чем поиск по карте.
+ */
+const encoded = new Map<string, string>();
+
+export async function assetDataUrl(hash: string): Promise<string | null> {
+  const known = encoded.get(hash);
+  if (known) return known;
+
+  const entry = store.get(hash);
+  if (!entry) return null;
+
+  const url = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(entry.blob);
+  });
+
+  encoded.set(hash, url);
+  return url;
+}
+
 /** Вес одного ассета. По нему инспектор считает, сколько весит тетрадь. */
 export function assetSize(hash: string): number {
   return store.get(hash)?.bytes ?? 0;

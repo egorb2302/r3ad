@@ -23,6 +23,7 @@ const TOOLS: { tool: Tool; key: string; title: string }[] = [
   { tool: 'eraser', key: 'E', title: 'Eraser — removes whole strokes' },
   { tool: 'text', key: 'T', title: 'Text block' },
   { tool: 'image', key: 'I', title: 'Insert an image' },
+  { tool: 'clip', key: 'L', title: 'Place the chosen clipping' },
 ];
 
 export function JournalToolbar() {

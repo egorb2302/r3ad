@@ -10,8 +10,11 @@
  * Ядро не знает, где лежат картинки: ассеты приезжают колбэком. Хранилище
  * блобов — вопрос среды (OPFS, память, снапшот), а не документа.
  */
+import { paintCard } from '../clipping/card';
+import type { Clipping } from '../clipping/types';
 import { paintBackground } from './background';
 import { strokePath } from './stroke';
+import { FACES, TEXT_LEADING, wrapText } from './text';
 import { blockLayer, PAGE_H, PAGE_W, type Block, type PageDoc, type Stroke } from './types';
 
 /** Тон бумаги тот же, что у страниц тома (scene/geometry.ts): это одна бумага. */
@@ -20,6 +23,13 @@ export const JOURNAL_PAPER = '#efe6d4';
 export interface PaintOptions {
   /** Битмап ассета по хэшу. Нет картинки — на её месте рисуется рамка ожидания. */
   image?: (hash: string) => CanvasImageSource | null;
+  /** Размеры ассета: карточке вырезки они нужны до того, как она нарисована. */
+  size?: (hash: string) => { width: number; height: number } | null;
+  /**
+   * Вырезка по идентификатору. Ядро не знает, где лежит реестр вырезок, — ровно
+   * по той же причине, по которой не знает, где лежат картинки.
+   */
+  clipping?: (id: string) => Clipping | null;
   /**
    * Что не печатать: правящийся текстовый блок (его показывает поле ввода) и
    * штрихи под ластиком, которых ещё нет в документе, но уже нет на бумаге.
@@ -72,49 +82,15 @@ export function paintStroke(ctx: CanvasRenderingContext2D, stroke: Stroke) {
   ctx.restore();
 }
 
-/** Гарнитуры блоков. Общие для холста и для поля ввода — иначе текст прыгает. */
-export const FACES = {
-  serif: 'Literata, Georgia, serif',
-  sans: 'Inter, system-ui, sans-serif',
-} as const;
+/*
+ * Гарнитуры, интерлиньяж и разбивка на строки переехали в ./text: ими
+ * пользуется ещё и карточка вырезки, а импортировать её печать отсюда значило
+ * бы замкнуть круг. Наружу они по-прежнему видны здесь.
+ */
+export { FACES, TEXT_LEADING, wrapText };
 
 export function blockFont(block: Extract<Block, { type: 'text' }>): string {
   return `${block.style.weight} ${block.style.sizeMm}px ${FACES[block.style.family]}`;
-}
-
-/** Межстрочное расстояние текстового блока в долях кегля. */
-export const TEXT_LEADING = 1.35;
-
-/**
- * Разбивка текста блока на строки.
- *
- * Отдана наружу, потому что по ней же ставится поле ввода: строки в нём и на
- * холсте обязаны совпадать, иначе текст прыгает в момент, когда правку
- * заканчивают.
- */
-export function wrapText(ctx: CanvasRenderingContext2D, text: string, width: number): string[] {
-  const lines: string[] = [];
-
-  for (const paragraph of text.split('\n')) {
-    const words = paragraph.split(/\s+/).filter(Boolean);
-    if (words.length === 0) {
-      lines.push('');
-      continue;
-    }
-
-    let line = words[0];
-    for (let i = 1; i < words.length; i++) {
-      const next = `${line} ${words[i]}`;
-      if (ctx.measureText(next).width <= width) line = next;
-      else {
-        lines.push(line);
-        line = words[i];
-      }
-    }
-    lines.push(line);
-  }
-
-  return lines;
 }
 
 /** Один блок отдельно от страницы: им же рисуется блок, который сейчас тащат. */
@@ -143,8 +119,20 @@ export function paintBlock(
       ctx.fillText(line, 0, y);
       y += step;
     }
-  } else {
+  } else if (block.type === 'image') {
     paintImage(ctx, block, options);
+  } else {
+    /*
+     * Вырезка ищется в реестре. Не нашлась — рисуем пустое место её размера, а
+     * не пропускаем блок: страница обведена и подписана вокруг карточки, и
+     * дыра честнее, чем съехавшая на её месте разлиновка.
+     */
+    const clipping = options.clipping?.(block.clippingId) ?? null;
+    if (clipping) paintCard(ctx, clipping, rect, options);
+    else {
+      ctx.fillStyle = 'rgba(120,104,84,0.12)';
+      ctx.fillRect(0, 0, rect.w, rect.h);
+    }
   }
 
   ctx.restore();

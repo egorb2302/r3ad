@@ -25,7 +25,7 @@
  * перепечатки страницы со всеми её штрихами.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { imageFor } from '@/core/journal/assets';
+import { imageFor, imageSize } from '@/core/journal/assets';
 import { id as makeId } from '@/core/journal/ids';
 import {
   blockAt,
@@ -48,6 +48,7 @@ import {
 } from '@/core/journal/types';
 import { flatRect, serverFlatRect, subscribeFlatRect } from '@/scene/journal/flatFrame';
 import { BRUSH_OF, useJournal } from '@/store/useJournal';
+import { clippingFor, useClips } from '@/store/useClips';
 
 /** Предел приближения. Дальше страница крупнее собственного разрешения. */
 const ZOOM = { min: 0.6, max: 6 };
@@ -85,6 +86,7 @@ export function FlatEditor() {
   const setTool = useJournal((s) => s.setTool);
   const edit = useJournal((s) => s.edit);
   const insertImage = useJournal((s) => s.insertImage);
+  const insertClipping = useJournal((s) => s.insertClipping);
 
   const journal = openId ? docs[openId] ?? null : null;
   const page = journal && flatPage !== null ? journal.pages[flatPage] ?? null : null;
@@ -178,7 +180,7 @@ export function FlatEditor() {
     ctx.beginPath();
     ctx.rect(0, 0, PAGE_W, PAGE_H);
     ctx.clip();
-    paintPage(ctx, page, { image: imageFor, hide: hidden });
+    paintPage(ctx, page, { image: imageFor, size: imageSize, clipping: clippingFor, hide: hidden });
     ctx.restore();
   }, [hidden, page, prepare]);
 
@@ -192,7 +194,7 @@ export function FlatEditor() {
     ctx.clip();
 
     if (stroke.current) paintStroke(ctx, stroke.current);
-    if (preview) paintBlock(ctx, preview, { image: imageFor });
+    if (preview) paintBlock(ctx, preview, { image: imageFor, size: imageSize, clipping: clippingFor });
     ctx.restore();
 
     // Кольцо ластика и рамка выделения — поверх обреза: это интерфейс, не бумага.
@@ -295,6 +297,18 @@ export function FlatEditor() {
        * уже в поле, нельзя — оно только что появилось.
        */
       edit(block.id);
+      return;
+    }
+
+    /*
+     * Вырезка кладётся тем же нажатием, которым выбирают ей место. Выбранная —
+     * та, что подсвечена в панели: инструмент не спрашивает, какую именно, ровно
+     * как перо не спрашивает, каким цветом.
+     */
+    if (tool === 'clip') {
+      const clips = useClips.getState();
+      const clipping = clips.chosen ? clips.clips[clips.chosen] : null;
+      if (clipping) insertClipping(clipping, point);
       return;
     }
 
@@ -557,6 +571,7 @@ function newTextBlock(x: number, y: number): Extract<Block, { type: 'text' }> {
 function cursorFor(tool: string) {
   if (tool === 'select') return 'default';
   if (tool === 'text') return 'text';
+  if (tool === 'clip') return 'copy';
   return 'crosshair';
 }
 

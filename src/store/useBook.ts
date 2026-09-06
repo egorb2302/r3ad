@@ -9,6 +9,7 @@
  */
 import { create } from 'zustand';
 import type { ContentDoc } from '@/core/content';
+import { compileClippings } from '@/core/clipping/compile';
 import { openFile, syntheticDoc } from '@/core/ingest';
 import {
   computeMetrics,
@@ -307,7 +308,7 @@ export const useBook = create<BookState>((set, get) => ({
 
     set({
       status: 'reading',
-      stage: `opening ${volume.title}`,
+      stage: volume.source.kind === 'compiled' ? 'compiling the dossier' : `opening ${volume.title}`,
       error: null,
       progress: { done: 0, total: 0 },
     });
@@ -316,6 +317,13 @@ export const useBook = create<BookState>((set, get) => ({
       const doc =
         volume.source.kind === 'synthetic'
           ? syntheticDoc(volume.source.options, volume.id)
+          : volume.source.kind === 'compiled'
+          ? // Досье собирается из вырезок в тот же ContentDoc, в который
+            // приезжает EPUB, — и дальше идёт по общему конвейеру (§10).
+            await compileClippings(volume.source.clippings, {
+              id: volume.id,
+              title: volume.title,
+            })
           : {
               ...(await openFile(volume.source.file, (done, total) =>
                 set({ progress: { done, total } }),

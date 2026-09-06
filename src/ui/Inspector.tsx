@@ -14,6 +14,7 @@ import { CASE } from '@/scene/bookcase/caseGeometry';
 import { SPINE_CAPACITY } from '@/scene/bookcase/spineInstances';
 import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
 import { JournalInspector } from './journal/JournalInspector';
+import { ClipPanel } from './clips/ClipPanel';
 
 /**
  * Языки, для которых имеет смысл переключаться вручную.
@@ -218,6 +219,8 @@ export function Inspector() {
         <Stat label="Composition" value={pagination ? `${Math.round(pagination.tookMs)} ms` : '—'} />
       </Panel>
       )}
+
+      <ClipPanel />
 
       <Panel title="Shelf">
         <Stat label="On the shelf" value={`${shelved.length} of ${SPINE_CAPACITY}`} />

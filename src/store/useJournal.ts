@@ -36,11 +36,14 @@ import {
   type PageBackground,
   type PageDoc,
 } from '@/core/journal/types';
+import type { Clipping } from '@/core/clipping/types';
 import { journalRecord } from '@/core/library/volume';
 import { useBook } from './useBook';
 import { useLibrary } from './useLibrary';
+import { CARD_MAX_SHARE } from '@/core/clipping/card';
+import { measureCard } from './useClips';
 
-export type Tool = 'select' | 'pen' | 'marker' | 'eraser' | 'text' | 'image';
+export type Tool = 'select' | 'pen' | 'marker' | 'eraser' | 'text' | 'image' | 'clip';
 
 export interface BrushSettings {
   color: string;
@@ -95,10 +98,20 @@ interface JournalState {
   addLeaf: () => void;
   setBackground: (background: PageBackground) => void;
   insertImage: (file: Blob) => Promise<void>;
+  insertClipping: (clipping: Clipping, at?: { x: number; y: number }) => void;
 
   select: (blockId: string | null) => void;
   edit: (blockId: string | null) => void;
   deleteSelection: () => void;
+}
+
+const clampTo = (value: number, max: number) => Math.min(Math.max(value, 4), Math.max(4, max - 4));
+
+/** Наклон карточки: ±1.2°, выведенные из её идентификатора. */
+function tiltOf(id: string): number {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) % 2400;
+  return (((hash / 2400) * 2.4 - 1.2) * Math.PI) / 180;
 }
 
 /** Тетрадь на столе и её страница — то, к чему сводится почти каждое действие. */
@@ -288,6 +301,39 @@ export const useJournal = create<JournalState>((set, get) => ({
       rot: 0,
       assetHash: stored.hash,
       frame: 'none',
+    };
+
+    get().apply({ type: 'block:add', page: page.id, block });
+    set({ tool: 'select', selection: block.id });
+  },
+
+  /**
+   * Вырезка ложится на страницу карточкой.
+   *
+   * Высоту не задаём, а спрашиваем у самой карточки: сколько строк вышло из
+   * текста при этой ширине, столько она и занимает. Ширина при этом — три
+   * четверти полосы, чтобы поле для пометок от руки осталось: ради него
+   * вырезку в тетрадь и кладут (SPEC §4.2).
+   *
+   * Лёгкий поворот выведен из идентификатора, а не случаен: перерисовка
+   * страницы не должна дёргать карточку, а «приклеено руками» читается именно
+   * по нему.
+   */
+  insertClipping: (clipping, at) => {
+    const page = flatPageDoc(get());
+    if (!page) return;
+
+    const w = PAGE_W * 0.74;
+    const h = Math.min(PAGE_H * CARD_MAX_SHARE, measureCard(clipping, w));
+    const x = at ? clampTo(at.x - w / 2, PAGE_W - w) : (PAGE_W - w) / 2;
+    const y = at ? clampTo(at.y - 6, PAGE_H - h) : (PAGE_H - h) / 2;
+
+    const block: Block = {
+      id: makeId(),
+      type: 'clipping',
+      rect: { x, y, w, h },
+      rot: tiltOf(clipping.id),
+      clippingId: clipping.id,
     };
 
     get().apply({ type: 'block:add', page: page.id, block });

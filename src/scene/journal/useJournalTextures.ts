@@ -17,10 +17,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { paintPage } from '@/core/journal/paint';
-import { imageFor } from '@/core/journal/assets';
+import { imageFor, imageSize } from '@/core/journal/assets';
 import { PAGE_W, type PageDoc } from '@/core/journal/types';
 import { useBook } from '@/store/useBook';
 import { useJournal } from '@/store/useJournal';
+import { clippingFor } from '@/store/useClips';
 import type { PageTextures } from '../usePageTextures';
 
 /** Столько же, сколько у тома: на экране разворот, рядом ещё один. */
@@ -53,7 +54,7 @@ function paintTexture(page: PageDoc, widthPx: number, heightPx: number): Entry {
   // Холст переводится в миллиметры страницы: документ не знает про пиксели.
   const scale = widthPx / PAGE_W;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  paintPage(ctx, page, { image: imageFor });
+  paintPage(ctx, page, { image: imageFor, size: imageSize, clipping: clippingFor });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;

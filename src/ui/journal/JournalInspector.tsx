@@ -12,7 +12,10 @@ import { assetSize } from '@/core/journal/assets';
 import { BACKGROUNDS } from '@/core/journal/background';
 import { journalExtent, journalStats } from '@/core/journal/journal';
 import { blockLayer, type Block } from '@/core/journal/types';
+import { bylineOf } from '@/core/clipping/types';
+import { dateOf } from '@/core/clipping/card';
 import { BRUSH_OF, useJournal } from '@/store/useJournal';
+import { useClips } from '@/store/useClips';
 import { Panel, Row, Select, Slider, Stat, Toggle } from '../primitives';
 
 /** Чернила: тёмные и насыщенные, чтобы читались на кремовой бумаге. */
@@ -71,6 +74,13 @@ export function JournalInspector() {
           hint="Every point carries pressure and time: the notes can be replayed later"
         />
         <Stat label="Blocks" value={stats.blocks} />
+        {stats.clips.length > 0 ? (
+          <Stat
+            label="Clippings"
+            value={stats.clips.length}
+            hint="Cards unfurled from links — the same ones a dossier is compiled from"
+          />
+        ) : null}
         {stats.images.length > 0 ? (
           <Stat
             label="Images"
@@ -166,7 +176,9 @@ export function JournalInspector() {
               onChange={(deg) => update({ ...block, rot: (deg * Math.PI) / 180 })}
             />
           </Row>
-          {block.type === 'image' ? (
+          {block.type === 'clipping' ? (
+            <ClippingFacts id={block.clippingId} />
+          ) : block.type === 'image' ? (
             <Row label="Frame">
               <Toggle
                 checked={block.frame === 'polaroid'}
@@ -212,6 +224,44 @@ export function JournalInspector() {
             Delete
           </button>
         </Panel>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Что известно про вырезку под выделением.
+ *
+ * Адрес показывается целиком и не сокращается: атрибуция — обязательная часть
+ * вырезки (SPEC §10), и панель — последнее место, где её уместно прятать за
+ * многоточием. Ссылка ведёт наружу в новой вкладке, `noreferrer` — чтобы
+ * источник не узнавал, откуда пришли.
+ */
+function ClippingFacts({ id }: { id: string }) {
+  const clipping = useClips((s) => s.clips[id] ?? null);
+  if (!clipping) {
+    return (
+      <p className="text-[10.5px] leading-snug text-ash-400">
+        This clipping is no longer in the panel; the card keeps its place on the page.
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <Stat label="Source" value={clipping.attribution.sourceName} />
+      <Stat label="Kind" value={clipping.adapter} />
+      <Stat label="By" value={bylineOf(clipping)} />
+      <Stat label="Date" value={dateOf(clipping.publishedAt ?? clipping.fetchedAt)} />
+      {clipping.attribution.sourceUrl ? (
+        <a
+          href={clipping.attribution.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 block break-all text-[10.5px] leading-snug text-brass-400 underline-offset-2 hover:underline"
+        >
+          {clipping.attribution.sourceUrl}
+        </a>
       ) : null}
     </>
   );
