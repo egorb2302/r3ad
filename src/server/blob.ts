@@ -24,7 +24,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path';
 import { assetKey } from './keys';
 import { issueTicket, TICKET_TTL_MS } from './tokens';
-import { vercelStore } from './vercelBlob';
+import { blobCredentials, vercelStore } from './vercelBlob';
 
 export { ASSET_PREFIX, assetKey, snapshotKey, STORE_DIR } from './keys';
 
@@ -162,12 +162,13 @@ function fileStore(): BlobStore {
 /**
  * Что подключено.
  *
- * Ровно одна строка, как и задумано в §15.1: ключ в окружении — работает
- * Vercel Blob, нет ключа — файлы. Ключ Vercel подставляет сам, когда стор
- * привязан к проекту; локально его нет, и ничего для этого делать не надо.
+ * Ровно одна строка, как и задумано в §15.1: стор привязан к проекту —
+ * работает Vercel Blob, нет — файлы. Что именно Vercel подставляет при
+ * привязке, знает `blobCredentials`; локально нет ничего, и ничего для этого
+ * делать не надо.
  */
-const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
-export const blobs: BlobStore = BLOB_TOKEN ? vercelStore(BLOB_TOKEN) : fileStore();
+const BLOB = blobCredentials();
+export const blobs: BlobStore = BLOB ? vercelStore(BLOB) : fileStore();
 
 /** Байты пришли — но те ли это байты. Хранилище адресуется содержимым. */
 export function hashOf(body: Uint8Array): string {

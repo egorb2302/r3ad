@@ -17,7 +17,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { STORE_DIR } from './keys';
-import { blobMeta } from './vercelBlob';
+import { blobCredentials, blobMeta } from './vercelBlob';
 
 export type SnapshotScope = 'appearance' | 'journal' | 'volume';
 
@@ -137,8 +137,8 @@ function fileMeta(): MetaStore {
   };
 }
 
-const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
-export const meta: MetaStore = BLOB_TOKEN ? blobMeta(BLOB_TOKEN) : fileMeta();
+const BLOB = blobCredentials();
+export const meta: MetaStore = BLOB ? blobMeta(BLOB) : fileMeta();
 
 /** Срок жизни снапшота из §14. Продлевается при каждом открытии. */
 export const SNAPSHOT_TTL_MS = 90 * 24 * 60 * 60 * 1000;

@@ -96,10 +96,12 @@ node scripts/make-fixtures.mjs
 Чтение, тетрадь и локальная библиотека серверу не нужны — они работают из статики. Сервер нужен
 одному шерингу (`/s/:id`), и для него на Vercel нужны две вещи:
 
-1. **Vercel Blob.** Storage → Create → Blob, привязать к проекту. Ключ `BLOB_READ_WRITE_TOKEN`
-   подставится сам, и с ним `server/blob.ts` и `server/meta.ts` переключаются с файлов на блоб —
-   байты, манифесты и реестр снапшотов лежат в нём одном (`server/vercelBlob.ts`). Без ключа
-   шеринг на Vercel не работает: файловая система там эфемерная.
+1. **Vercel Blob.** Storage → Create → Blob, привязать к проекту. В окружении появится
+   `BLOB_STORE_ID` (доступ функция получает OIDC-токеном рантайма; старые сторы дают вместо этого
+   ключ `BLOB_READ_WRITE_TOKEN` — поддержано и то и другое), и `server/blob.ts` с `server/meta.ts`
+   переключаются с файлов на блоб — байты, манифесты и реестр снапшотов лежат в нём одном
+   (`server/vercelBlob.ts`). Без привязки шеринг на Vercel не работает: файловая система там
+   эфемерная. Переменные применяются только к новым деплоям — после привязки нужен Redeploy.
 2. **Три секрета** в Environment Variables — `R3AD_SHARE_SECRET`, `CRON_SECRET`,
    `R3AD_ADMIN_SECRET`; значения любые случайные, например
    `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. `CRON_SECRET`

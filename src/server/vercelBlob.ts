@@ -1,10 +1,12 @@
 /**
  * Vercel Blob: байты и реестр снапшотов в одном хранилище.
  *
- * Единственное Vercel-специфичное место в проекте (§15.1). Включается ключом
- * `BLOB_READ_WRITE_TOKEN`, который Vercel подставляет сам, когда стор привязан
- * к проекту; без ключа работают файловые реализации, и клиентский код не знает
- * разницы.
+ * Единственное Vercel-специфичное место в проекте (§15.1). Включается тем, что
+ * Vercel подставляет при привязке стора: сегодня это `BLOB_STORE_ID` плюс OIDC
+ * — функция получает короткоживущий `VERCEL_OIDC_TOKEN`, и SDK ходит с ним;
+ * старый способ — один ключ `BLOB_READ_WRITE_TOKEN`. Оба поддержаны
+ * (`blobCredentials`), без того и другого работают файловые реализации, и
+ * клиентский код не знает разницы.
  *
  * Спека отводила реестру Turso, а лимитам Upstash. Первый деплой берёт минимум —
  * один Blob на всё, — и это осознанный размен: реестр на сотни снапшотов не
@@ -66,22 +68,46 @@ async function eachLimited<T, R>(items: T[], work: (item: T) => Promise<R>): Pro
   return out;
 }
 
-/** Идентификатор стора из ключа: `vercel_blob_rw_<store>_<secret>`. */
-function storeIdOf(token: string): string {
-  const [, , , storeId = ''] = token.split('_');
-  if (!storeId) throw new Error('BLOB_READ_WRITE_TOKEN does not look like a Vercel Blob token');
-  return storeId;
+/**
+ * Как ходить в стор.
+ *
+ * Либо ключ (`token`), либо только идентификатор — тогда SDK сам возьмёт OIDC
+ * из рантайма. Оба поля уходят в каждый вызов SDK как есть: с `token` он
+ * пользуется ключом, без него — федерацией.
+ */
+export interface BlobCredentials {
+  storeId: string;
+  token?: string;
+}
+
+/**
+ * Что дал Vercel. `null` — ничего: локальная разработка, файловые реализации.
+ *
+ * Ключ старого образца несёт идентификатор в себе: `vercel_blob_rw_<store>_<…>`.
+ * Идентификатор из окружения бывает с префиксом `store_`, а в адресе блоба он
+ * без префикса — SDK снимает его так же.
+ */
+export function blobCredentials(): BlobCredentials | null {
+  const token = process.env.BLOB_READ_WRITE_TOKEN?.trim();
+  if (token) {
+    const [, , , storeId = ''] = token.split('_');
+    if (!storeId) throw new Error('BLOB_READ_WRITE_TOKEN does not look like a Vercel Blob token');
+    return { storeId, token };
+  }
+  const storeId = process.env.BLOB_STORE_ID?.trim();
+  if (storeId) return { storeId: storeId.replace(/^store_/, '') };
+  return null;
 }
 
 /* ─── Байты ─────────────────────────────────────────────────────────────── */
 
-export function vercelStore(token: string): BlobStore {
-  const storeId = storeIdOf(token);
+export function vercelStore(auth: BlobCredentials): BlobStore {
+  const { storeId } = auth;
   const publicUrl = (key: string) => `https://${storeId}.public.blob.vercel-storage.com/${key}`;
 
   const exists = async (key: string): Promise<boolean> => {
     try {
-      await head(key, { token });
+      await head(key, auth);
       return true;
     } catch (error) {
       if (error instanceof BlobNotFoundError) return false;
@@ -109,7 +135,7 @@ export function vercelStore(token: string): BlobStore {
        * как «без ограничения», поэтому нижняя граница — байт.
        */
       const signed = await issueSignedToken({
-        token,
+        ...auth,
         pathname,
         operations: ['put'],
         validUntil: expiresAt,
@@ -142,7 +168,7 @@ export function vercelStore(token: string): BlobStore {
     async put(key, body, mime) {
       // SDK принимает Buffer, а не Uint8Array; копия — те же байты.
       await put(key, Buffer.from(body), {
-        token,
+        ...auth,
         access: 'public',
         contentType: mime,
         addRandomSuffix: false,
@@ -161,14 +187,14 @@ export function vercelStore(token: string): BlobStore {
 
     async remove(keys) {
       if (keys.length === 0) return;
-      await del(keys.map(publicUrl), { token });
+      await del(keys.map(publicUrl), auth);
     },
 
     async list(prefix) {
       const out: { key: string; updatedAt: number }[] = [];
       let cursor: string | undefined;
       do {
-        const page = await list({ token, prefix, cursor, limit: 1000 });
+        const page = await list({ ...auth, prefix, cursor, limit: 1000 });
         for (const blob of page.blobs) {
           out.push({ key: blob.pathname, updatedAt: blob.uploadedAt.getTime() });
         }
@@ -205,7 +231,7 @@ export function vercelStore(token: string): BlobStore {
  * Пересчёт ссылок на ассеты (`orphans`) записи открывает — все. Это цена
  * реестра без запросов, и она оплачивается только при удалении и уборке.
  */
-export function blobMeta(token: string): MetaStore {
+export function blobMeta(auth: BlobCredentials): MetaStore {
   const folder = (id: string) => `${META_PREFIX}${id}/`;
   const nameOf = (id: string, expiresAt: number) =>
     `${folder(id)}${String(Date.now()).padStart(14, '0')}.${expiresAt}.json`;
@@ -220,7 +246,7 @@ export function blobMeta(token: string): MetaStore {
     const out: Entry[] = [];
     let cursor: string | undefined;
     do {
-      const page = await list({ token, prefix, cursor, limit: 1000 });
+      const page = await list({ ...auth, prefix, cursor, limit: 1000 });
       for (const blob of page.blobs) {
         const match = /\/\d+\.(\d+)\.json$/.exec(blob.pathname);
         if (match) out.push({ pathname: blob.pathname, expiresAt: Number(match[1]) });
@@ -241,13 +267,13 @@ export function blobMeta(token: string): MetaStore {
   };
 
   const open = async (pathname: string): Promise<SnapshotRecord | null> => {
-    const result = await get(pathname, { token, access: 'private', useCache: false });
+    const result = await get(pathname, { ...auth, access: 'private', useCache: false });
     if (!result || result.statusCode !== 200) return null;
     return JSON.parse(await new Response(result.stream).text()) as SnapshotRecord;
   };
 
   const drop = async (paths: string[]) => {
-    if (paths.length > 0) await del(paths, { token });
+    if (paths.length > 0) await del(paths, auth);
   };
 
   return {
@@ -262,7 +288,7 @@ export function blobMeta(token: string): MetaStore {
     async put(record) {
       const before = await entries(folder(record.id));
       await put(nameOf(record.id, record.expiresAt), JSON.stringify(record), {
-        token,
+        ...auth,
         access: 'private',
         contentType: 'application/json',
         addRandomSuffix: false,
