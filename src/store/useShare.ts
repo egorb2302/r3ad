@@ -16,6 +16,12 @@
  * Он лежит в localStorage: потерялся — снапшот остаётся жить и читаться, но
  * обновить и снести его больше некому. Так и задумано, и об этом сказано в
  * диалоге.
+ *
+ * Рядом с токеном лежит и сама ссылка. Токен без ссылки бесполезен: после
+ * перезагрузки диалог показывал «Get a link», хотя право снести или обновить
+ * снапшот в этом браузере было, — и снести его можно было только руками через
+ * API. Теперь открытый диалог поднимает последнюю опубликованную ссылку, если
+ * токен на неё ещё здесь.
  */
 import { create } from 'zustand';
 import { assetBlob } from '@/core/assets';
@@ -117,6 +123,41 @@ function forgetToken(id: string) {
   }
 }
 
+/**
+ * Последняя опубликованная ссылка — одна: диалог держит одну, и обновляет её же.
+ * Поднимается только вместе с токеном: ссылка без права на снапшот — это
+ * просто адрес, и показывать её как «мою» было бы неправдой.
+ */
+const LINK_KEY = 'r3ad.link';
+
+function rememberLink(link: ShareLink) {
+  try {
+    localStorage.setItem(LINK_KEY, JSON.stringify(link));
+  } catch {
+    /* приватное окно */
+  }
+}
+
+function recallLink(): ShareLink | null {
+  try {
+    const raw = localStorage.getItem(LINK_KEY);
+    if (!raw) return null;
+    const link = JSON.parse(raw) as ShareLink;
+    if (typeof link?.id !== 'string' || typeof link.url !== 'string') return null;
+    return recallToken(link.id) ? link : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetLink() {
+  try {
+    localStorage.removeItem(LINK_KEY);
+  } catch {
+    /* см. выше */
+  }
+}
+
 /** Название снимка по умолчанию: то, что на столе, иначе — вся полка. */
 function defaultTitle(): string {
   const library = useLibrary.getState();
@@ -145,6 +186,14 @@ export const useShare = create<ShareState>((set, get) => ({
     set({ open, error: null });
     if (open) {
       if (!get().title) set({ title: defaultTitle() });
+      /*
+       * Поднять опубликованное. Объём и замок — те, с которыми публиковали:
+       * «новая версия» обязана уехать тем же составом, а не дефолтным.
+       */
+      if (!get().link) {
+        const link = recallLink();
+        if (link) set({ link, scope: link.scope, lock: link.locked });
+      }
       void get().measure();
     }
   },
@@ -208,17 +257,15 @@ export const useShare = create<ShareState>((set, get) => ({
         published.path +
         (published.fragmentKey ? `#k=${published.fragmentKey}` : '');
 
-      set({
-        status: 'done',
-        stage: '',
-        link: {
-          id: published.id,
-          url,
-          version: published.version,
-          scope: get().scope,
-          locked: get().lock,
-        },
-      });
+      const link: ShareLink = {
+        id: published.id,
+        url,
+        version: published.version,
+        scope: get().scope,
+        locked: get().lock,
+      };
+      rememberLink(link);
+      set({ status: 'done', stage: '', link });
     } catch (err) {
       set({ status: 'error', stage: '', error: message(err) });
     }
@@ -236,8 +283,10 @@ export const useShare = create<ShareState>((set, get) => ({
 
     set({ status: 'working', stage: 'removing' });
     try {
+      // 404 здесь — успех: снапшот истёк или снят раньше, и ссылке на него конец.
       await removeSnapshot(link.id, token);
       forgetToken(link.id);
+      forgetLink();
       set({ status: 'idle', stage: '', link: null });
     } catch (err) {
       set({ status: 'error', stage: '', error: message(err) });
