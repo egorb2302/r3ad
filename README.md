@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# r3ad
 
-## Getting Started
+3D-читалка и 3D-блокнот. Полное описание проекта — в [SPEC.md](SPEC.md).
 
-First, run the development server:
+**Текущая веха: M0 — каркас и спайк растеризации.** Что работает:
+
+- процедурный том, у которого толщина выведена из числа страниц, а не задана константой;
+- разбивка текста на страницы средствами браузера (multicol) с честным пересчётом при смене набора;
+- растеризация страницы в текстуру через `foreignObject` со вшитыми шрифтами;
+- воркспейс: навигатор с оглавлением, инспектор набора, тулбар листания;
+- кэш текстур с вытеснением по LRU.
+
+Демонстрация вехи: подвигать «Кегль» в правой панели — том пересчитывается и физически толстеет.
+
+## Запуск
+
+```bash
+npm install
+```
+
+```bash
+node scripts/fetch-fonts.mjs
+```
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Шрифты (Literata, Inter — обе под SIL OFL) не хранятся в репозитории: скрипт скачивает нужные
+подмножества с Google Fonts и пишет `public/fonts/manifest.json` с их `unicode-range`. Манифест
+нужен не только для загрузки — по нему растеризатор решает, какие подмножества вшивать в
+конкретную страницу.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Что выяснил спайк M0
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Растеризация страницы в текстуру была главным риском проекта (SPEC §19). Она работает, но путь к
+ней оказался уже, чем ожидалось, — четыре ограничения, каждое из которых молча ломает результат:
 
-## Learn More
+| Что | Наблюдение | Следствие |
+|---|---|---|
+| Адрес SVG | `blob:` помечает картинку как cross-origin, `texImage2D` падает с SecurityError | Только `data:` |
+| Приёмник | `ImageBitmap` из SVG теряет origin-clean даже когда `<img>` его сохранил | Только 2D-холст, ~0.8 мс |
+| `font-display` | При `block` и при `auto` текст внутри SVG не рисуется совсем — страница выходит пустым фоном | Только `swap` |
+| Шрифты документа | Гарнитура из `document.fonts` внутри SVG-картинки недоступна | Вшивать обязательно |
 
-To learn more about Next.js, take a look at the following resources:
+Проверено, что подставляется именно вшитая гарнитура, а не запасная: контрольная строка даёт
+2126 закрашенных пикселей против 1568 у serif и 1893 у Georgia.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Замеры
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Синтетическая книга на 536k знаков, 24 главы, десктопный профиль текстуры 1024×1453.
 
-## Deploy on Vercel
+| Метрика | Значение | Бюджет |
+|---|---|---|
+| Полная вёрстка книги | 350–450 мс | < 2.5 с |
+| Растеризация страницы | 28–37 мс | < 40 мс |
+| Живых текстур после 80 разворотов | 8 | ≤ 8 |
+| JS heap там же | 45 МБ | — |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Механика толщины на этих же настройках: 8 pt → 175 страниц → 8.8 мм, 10.5 pt → 287 → 14.4 мм,
+16 pt → 673 → 33.7 мм.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Растеризация в бюджет укладывается, но с оговоркой, которую стоит держать в голове: текст
+демонстрационной книги латиницей, и на страницу вшивается 130 КБ шрифтов. Та же книга
+по-русски тянет ещё и кириллицу — 203 КБ, и растеризация уходит за 70 мс. То есть запас
+держится на языке контента, а не на конвейере. Настоящее решение прежнее: подрезать шрифт до
+глифов конкретной страницы (harfbuzz-subset) на M1 — это снимет около 95% веса и сделает
+бюджет независимым от алфавита.
+
+Ещё три находки, стоившие отдельной отладки:
+
+- **`requestAnimationFrame` — плохой способ отдать управление между главами.** Он привязан к
+  отрисовке, которую тормозит наш же 3D-вьюпорт, а в скрытой вкладке перестаёт вызываться вовсе:
+  вёрстка растягивалась с 0.5 с до 16.6 с. Заменено на `scheduler.yield` / `setTimeout`.
+- **Дети `<Canvas>` живут в отдельном React-корне, и он коммитит не тогда, когда ожидаешь.**
+  Компонент внутри сцены, подписанный на zustand, не перерисовывался, пока по вьюпорту не
+  щёлкнут мышью: вёрстка посчитана, текстуры готовы, книги нет. Отсюда два следствия.
+  Первое — сцена сделана чистой функцией от пропсов, состояние читается снаружи, в `Viewport`
+  (это и по архитектуре лучше: ту же книгу потом покажет стеллаж). Второе — от
+  `frameloop="demand"` пришлось отказаться: в этой связке R3F 9 / React 19 он не доводит работу
+  своего корня до коммита вовсе. Вернуться к нему стоит на M7. Заодно `<Environment>` вынесен
+  в собственную границу `Suspense` — иначе он подвешивает всю сцену, пока собирает карту.
+- **Композитор — общее состояние.** Две страницы разворота заказываются одновременно и
+  перематывают его друг под друга; обе стороны выходили с одинаковым текстом. Отрисовка
+  выстроена в очередь.
+
+## Структура
+
+```
+src/core/      чистый TS: разбивка, растеризация, шрифты, генерация текста
+src/scene/     three.js: процедурная книга, материалы, кэш текстур
+src/ui/        воркспейс: панели, тулбар
+src/store/     zustand
+scripts/       загрузка шрифтов
+```
+
+`src/core` не знает ни про React, ни про three.js — там же будут жить парсер EPUB, документ
+тетради и сборка снапшотов.
+
+## Дальше
+
+M1 по [дорожной карте](SPEC.md#20-дорожная-карта): EPUB вместо синтетики, изгиб страницы,
+перетаскивание за угол, подрезка шрифтов.

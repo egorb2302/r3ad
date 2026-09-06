@@ -1,26 +1,128 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/*
+ * Интерфейсный шрифт подключается вручную, а не через next/font: файлы уже
+ * лежат в public/fonts ради растеризации страниц, и второй копии не нужно.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/inter-roman-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/inter-roman-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url('/fonts/inter-roman-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304,
+    U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0,
+    U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@theme {
+  /* Тёплая тёмная палитра: вечерняя библиотека, а не техно-дашборд. */
+  --color-ink-950: #100d0a;
+  --color-ink-900: #16130f;
+  --color-ink-850: #1b1712;
+  --color-ink-800: #221c16;
+  --color-ink-700: #2e261e;
+  --color-ink-600: #3d3328;
+  --color-ash-400: #8d8175;
+  --color-ash-300: #b1a597;
+  --color-ash-200: #d6cbbc;
+  --color-ash-100: #ede4d7;
+  --color-brass-500: #d9a441;
+  --color-brass-400: #e7bb66;
+  --font-ui: 'Inter', system-ui, sans-serif;
+}
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: var(--color-ink-950);
+  color: var(--color-ash-100);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* Ползунки инспектора: тонкие, без родных стилей ОС. */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  cursor: ew-resize;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 2px;
+  background: var(--color-ink-600);
+  border-radius: 2px;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  margin-top: -4.5px;
+  border-radius: 999px;
+  background: var(--color-ash-200);
+  border: 1px solid var(--color-ink-900);
+  transition: background 120ms;
+}
+input[type='range']:hover::-webkit-slider-thumb {
+  background: var(--color-brass-500);
+}
+input[type='range']::-moz-range-track {
+  height: 2px;
+  background: var(--color-ink-600);
+  border-radius: 2px;
+}
+input[type='range']::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: var(--color-ash-200);
+  border: 1px solid var(--color-ink-900);
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 9px;
+  border: 2px solid var(--color-ink-900);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
