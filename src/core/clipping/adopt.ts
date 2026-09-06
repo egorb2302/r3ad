@@ -7,7 +7,7 @@
  * же — если её же перед этим вставили скриншотом из буфера. Хранилище одно на
  * всё, и знать, откуда байты, ему незачем.
  */
-import { putImage } from '../journal/assets';
+import { putImage } from '../assets';
 import { id as makeId } from '../journal/ids';
 import { blocksFromText } from './blocks';
 import { sourceNameOf } from './meta';

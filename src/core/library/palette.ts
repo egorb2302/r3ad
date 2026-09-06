@@ -124,6 +124,19 @@ export function paletteFromColor(hsl: Hsl): SpinePalette {
   return paletteFromHsl(hsl);
 }
 
+/**
+ * Цвет из строки `#rrggbb` обратно в тон.
+ *
+ * Нужен ровно одному месту — ссылке-полке (§11.1), где корешок с обложки едет
+ * готовым цветом, а не обложкой: она в полтора килобайта не помещается. Через
+ * `paletteFromColor` тон вернётся в тот же переплётный диапазон, из которого
+ * вышел, поэтому оборот туда-обратно устойчив.
+ */
+export function hexToHsl(hex: string): Hsl {
+  const value = parseInt(hex.replace('#', ''), 16) || 0;
+  return rgbToHsl((value >> 16) & 255, (value >> 8) & 255, value & 255);
+}
+
 function rgbToHsl(r: number, g: number, b: number): Hsl {
   const rn = r / 255;
   const gn = g / 255;

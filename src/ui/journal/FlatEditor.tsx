@@ -25,7 +25,7 @@
  * перепечатки страницы со всеми её штрихами.
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { imageFor, imageSize } from '@/core/journal/assets';
+import { imageFor, imageSize } from '@/core/assets';
 import { id as makeId } from '@/core/journal/ids';
 import {
   blockAt,

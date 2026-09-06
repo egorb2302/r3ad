@@ -16,7 +16,7 @@
  * каждую строку. Санитайзер на этом пути не нужен, потому что нечего
  * санитизировать: чужих тегов в вырезке не бывает.
  */
-import { assetDataUrl, assetSize, imageSize } from '../journal/assets';
+import { assetDataUrl, assetSize, imageSize } from '../assets';
 import { docStats, type Chapter, type ContentDoc, type TocEntry } from '../content';
 import { dateOf } from './card';
 import { bylineOf, type Clipping, type ContentBlock } from './types';

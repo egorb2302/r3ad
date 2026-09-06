@@ -4,6 +4,7 @@
 import { lastSpread, sheetsToThicknessMm } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
+import { useShare } from '@/store/useShare';
 import { spreadPages } from '@/scene/usePageTextures';
 import { JournalToolbar } from './journal/JournalToolbar';
 
@@ -19,6 +20,9 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
   const desk = useLibrary((s) => s.desk);
   const flight = useLibrary((s) => s.flight);
   const shelve = useLibrary((s) => s.shelve);
+  const share = useShare((s) => s.toggle);
+  const shared = useShare((s) => s.shared);
+  const keep = useShare((s) => s.keep);
 
   const { right } = spreadPages(currentSheet, deskPages);
   const atDesk = view !== 'case';
@@ -54,6 +58,34 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
       </div>
 
       <div className="flex items-center gap-3">
+        {/*
+          Чужая полка из короткой ссылки. Метка стоит там же, где у снапшота, и
+          говорит то же самое: показанное сюда не сохраняется, пока его не
+          оставили себе.
+        */}
+        {shared ? (
+          <>
+            <span className="rounded bg-ink-800 px-1.5 py-0.5 text-[10px] text-ash-400">
+              shared shelf — not saved
+            </span>
+            <button
+              type="button"
+              onClick={() => void keep()}
+              title="Copy this shelf into your own library"
+              className="rounded bg-brass-700 px-2 py-0.5 text-[10.5px] text-ash-100 transition-colors hover:bg-brass-600"
+            >
+              keep it
+            </button>
+          </>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => share(true)}
+          title="Share this shelf (Shift+S)"
+          className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
+        >
+          share
+        </button>
         {desk && !flight ? (
           <button
             type="button"

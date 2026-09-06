@@ -8,7 +8,7 @@
  * при раскрытой тетради не показывается — набор и поля относятся к тексту,
  * которого здесь нет.
  */
-import { assetSize } from '@/core/journal/assets';
+import { assetSize } from '@/core/assets';
 import { BACKGROUNDS } from '@/core/journal/background';
 import { journalExtent, journalStats } from '@/core/journal/journal';
 import { blockLayer, type Block } from '@/core/journal/types';

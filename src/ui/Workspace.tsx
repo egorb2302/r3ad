@@ -17,8 +17,10 @@ import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { useJournal, type Tool } from '@/store/useJournal';
 import { useClips } from '@/store/useClips';
-import { ensureDocumentFonts, fontCssForText } from '@/core/rasterize/fonts';
-import { probeRasterizer } from '@/core/rasterize/svgRasterizer';
+import { useShare, adoptShelfFromUrl, restoreLibrary } from '@/store/useShare';
+import { ShareDialog } from './share/ShareDialog';
+import { R3AD_EXTENSION } from '@/core/share/pack';
+import { useBoot } from './boot';
 
 // three.js не переживает серверный рендер — грузим вьюпорт только в браузере.
 const Viewport = dynamic(() => import('@/scene/Viewport').then((m) => m.Viewport), {
@@ -28,11 +30,10 @@ const Viewport = dynamic(() => import('@/scene/Viewport').then((m) => m.Viewport
 
 export function Workspace() {
   const [panelsHidden, setPanelsHidden] = useState(false);
-  const [boot, setBoot] = useState<'fonts' | 'ready' | 'failed'>('fonts');
   const [dropping, setDropping] = useState(false);
+  const boot = useBoot();
 
   const runPagination = useBook((s) => s.runPagination);
-  const setProbe = useBook((s) => s.setProbe);
   const status = useBook((s) => s.status);
   const stage = useBook((s) => s.stage);
   const error = useBook((s) => s.error);
@@ -50,32 +51,42 @@ export function Workspace() {
   const insertImage = useJournal((s) => s.insertImage);
   const insertClipping = useJournal((s) => s.insertClipping);
   const unfurl = useClips((s) => s.unfurl);
+  const importFile = useShare((s) => s.importFile);
 
+  /**
+   * Откуда взялась полка на этом экране.
+   *
+   * Порядок важен и разрешает спор в одну сторону: `?s=` в адресе побеждает
+   * сохранённое. Человек перешёл по чужой ссылке — он пришёл смотреть её, а не
+   * свою полку; своя при этом никуда не делась, она в базе, и вернётся, стоит
+   * убрать параметр из адреса. Обратный порядок означал бы, что ссылка иногда
+   * не открывается, и объяснить почему было бы нечем.
+   *
+   * И только после этого — первая вёрстка: она считает то, что в итоге лежит на
+   * столе, а не то, что лежало до подъёма из базы.
+   */
   useEffect(() => {
+    if (boot !== 'ready') return;
     let alive = true;
 
     (async () => {
-      try {
-        await ensureDocumentFonts('body');
-        if (!alive) return;
-
-        const probeCss = await fontCssForText('Probe Ag', 'body');
-        setProbe(await probeRasterizer(probeCss.css));
-        if (!alive) return;
-
-        setBoot('ready');
-        runPagination();
-      } catch (err) {
-        if (!alive) return;
-        setBoot('failed');
-        setProbe({ ok: false, inkRatio: 0, note: `Fonts failed to load: ${String(err)}` });
+      const shared = new URLSearchParams(location.search).get('s');
+      if (shared) {
+        try {
+          await adoptShelfFromUrl(shared);
+        } catch {
+          /* Испорченный адрес — не повод не открыться: останется своя полка. */
+        }
+      } else {
+        await restoreLibrary();
       }
+      if (alive) runPagination();
     })();
 
     return () => {
       alive = false;
     };
-  }, [runPagination, setProbe]);
+  }, [boot, runPagination]);
 
   const onKey = useCallback(
     (e: KeyboardEvent) => {
@@ -131,6 +142,14 @@ export function Workspace() {
 
       if (e.key === 'n' || e.key === 'N') {
         journal.create();
+        return;
+      }
+
+      // Ctrl+S занят браузером, поэтому «поделиться» — на Shift+S: буква та же,
+      // а движение отличается ровно настолько, чтобы не путать с «на полку».
+      // Проверка идёт первой: без неё Shift+S съедается «на полку» ниже.
+      if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
+        useShare.getState().toggle(true);
         return;
       }
 
@@ -232,13 +251,20 @@ export function Workspace() {
       const file = e.dataTransfer.files?.[0];
       if (!file) return;
 
+      // Бандл — не книга и не картинка: это полка целиком, и она встаёт рядом
+      // со своей, а не открывается на столе.
+      if (file.name.toLowerCase().endsWith(R3AD_EXTENSION)) {
+        void importFile(file);
+        return;
+      }
+
       // Над раскрытой тетрадью картинка ложится на страницу, а не открывается
       // книгой: перетащить скриншот в конспект — обычное движение, а «открыть
       // png томом» не значит ничего.
       if (flat && file.type.startsWith('image/')) void insertImage(file).catch(() => undefined);
       else void open(file);
     },
-    [flat, insertImage, open],
+    [flat, importFile, insertImage, open],
   );
 
   return (
@@ -287,7 +313,7 @@ export function Workspace() {
           {dropping && (
             <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-lg border-2 border-dashed border-brass-500/70 bg-ink-950/70 backdrop-blur-sm">
               <span className="text-[12.5px] text-brass-400">
-              {flat ? 'Drop an image onto the page' : 'Drop an EPUB, TXT or Markdown file'}
+              {flat ? 'Drop an image onto the page' : 'Drop an EPUB, TXT, Markdown or .r3ad file'}
             </span>
             </div>
           )}
@@ -295,6 +321,8 @@ export function Workspace() {
 
         {!panelsHidden && <Inspector />}
       </div>
+
+      <ShareDialog />
     </div>
   );
 }

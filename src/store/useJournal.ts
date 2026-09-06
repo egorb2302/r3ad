@@ -14,7 +14,7 @@
  * ней себя и открывается.
  */
 import { create } from 'zustand';
-import { putImage } from '@/core/journal/assets';
+import { putImage } from '@/core/assets';
 import {
   applyCommand,
   emptyStack,

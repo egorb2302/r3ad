@@ -15,6 +15,7 @@ import { SPINE_CAPACITY } from '@/scene/bookcase/spineInstances';
 import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
 import { JournalInspector } from './journal/JournalInspector';
 import { ClipPanel } from './clips/ClipPanel';
+import { SharePanel } from './share/SharePanel';
 
 /**
  * Языки, для которых имеет смысл переключаться вручную.
@@ -221,6 +222,8 @@ export function Inspector() {
       )}
 
       <ClipPanel />
+
+      <SharePanel />
 
       <Panel title="Shelf">
         <Stat label="On the shelf" value={`${shelved.length} of ${SPINE_CAPACITY}`} />

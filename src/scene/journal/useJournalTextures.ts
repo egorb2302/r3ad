@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { paintPage } from '@/core/journal/paint';
-import { imageFor, imageSize } from '@/core/journal/assets';
+import { imageFor, imageSize } from '@/core/assets';
 import { PAGE_W, type PageDoc } from '@/core/journal/types';
 import { useBook } from '@/store/useBook';
 import { useJournal } from '@/store/useJournal';

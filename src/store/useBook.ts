@@ -104,6 +104,43 @@ interface BookState {
 
 const initialDoc = syntheticDoc();
 
+/**
+ * Книга, у которой приехал корешок, а не текст.
+ *
+ * Одна глава на одну страницу: столько же, сколько сказать по существу. Число
+ * знаков записи при этом не трогаем — корешок на полке обязан остаться той же
+ * толщины, что был у поделившегося, иначе снимок полки перестаёт быть снимком
+ * полки.
+ */
+function absentDoc(volume: VolumeRecord): ContentDoc {
+  const why =
+    volume.source.kind === 'absent' && volume.source.was === 'journal'
+      ? 'The notebook itself was not part of this snapshot.'
+      : 'Only the look of this shelf was shared — the text stayed on the sender&rsquo;s machine.';
+
+  return {
+    id: volume.id,
+    format: 'synthetic',
+    title: volume.title,
+    author: volume.author,
+    language: 'en',
+    chapters: [
+      {
+        id: 'absent',
+        title: volume.title,
+        html: `<h1>${volume.title}</h1><p><em>${volume.author}</em></p><p>${why}</p>`,
+      },
+    ],
+    toc: [{ id: 'absent', title: volume.title, chapterId: 'absent', depth: 0 }],
+    charCount: 0,
+    imageCount: 0,
+    imageBytes: 0,
+    sourceBytes: 0,
+    warnings: [{ code: 'absent', message: 'This volume was shared without its text.' }],
+    tookMs: 0,
+  };
+}
+
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let controller: AbortController | null = null;
 let runToken = 0;
@@ -301,6 +338,30 @@ export const useBook = create<BookState>((set, get) => ({
   openVolume: async (volume) => {
     // Тетрадь сюда не попадает: её содержимое не разбирают, а рисуют.
     if (volume.source.kind === 'journal') return;
+
+    /*
+     * Том из снимка «только внешний вид» (§11.2). Открывается — и объясняет,
+     * почему в нём ничего нет. Ошибка была бы неправдой: ничего не сломалось,
+     * тем и делились. Пустой стол — тоже: книга есть, её видно на полке, и
+     * снять её человек только что сумел.
+     */
+    if (volume.source.kind === 'absent') {
+      const doc = absentDoc(volume);
+      set({
+        doc,
+        docSource: volume.source,
+        currentSheet: 0,
+        turn: null,
+        pagination: null,
+        pages: 0,
+        sheets: 1,
+        status: 'idle',
+        stage: '',
+        error: null,
+      });
+      get().runPagination({ keepPosition: false });
+      return;
+    }
 
     if (debounceTimer) clearTimeout(debounceTimer);
     controller?.abort();
