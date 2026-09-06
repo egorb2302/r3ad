@@ -45,7 +45,17 @@ export async function POST(request: Request) {
     claims.push({ hash: item.hash, bytes: item.bytes });
   }
 
-  const present = await blobs.present(claims.map((c) => c.hash));
+  /*
+   * Хранилище может не ответить — не тот стор в окружении, протухшая
+   * привязка, сбой сервиса. Голый 500 без текста в проде не отличить от
+   * ошибки в коде; 502 с сообщением говорит, куда смотреть.
+   */
+  let present: Set<string>;
+  try {
+    present = await blobs.present(claims.map((c) => c.hash));
+  } catch (err) {
+    return fail('store', err instanceof Error ? err.message : 'The store did not answer.', 502);
+  }
   const missing = claims.filter((c) => !present.has(c.hash));
 
   /*
@@ -63,7 +73,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const uploads = await Promise.all(missing.map((c) => blobs.ticket(c.hash, c.bytes)));
+  let uploads;
+  try {
+    uploads = await Promise.all(missing.map((c) => blobs.ticket(c.hash, c.bytes)));
+  } catch (err) {
+    return fail('store', err instanceof Error ? err.message : 'The store did not answer.', 502);
+  }
 
   /*
    * Адреса отдаём на все ассеты, а не только на залитые сейчас. Публикующий
