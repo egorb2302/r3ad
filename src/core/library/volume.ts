@@ -15,6 +15,8 @@
 import type { DocFormat, ContentDoc } from '../content';
 import type { PageMetrics } from '../typography';
 import { pagesToSheets, PHYS, sheetsToThicknessMm } from '../units';
+import { journalExtent } from '../journal/journal';
+import type { JournalDoc } from '../journal/types';
 import { paletteFor, type SpinePalette } from './palette';
 import type { SyntheticOptions } from '../text/synthetic';
 
@@ -26,10 +28,20 @@ import type { SyntheticOptions } from '../text/synthetic';
  */
 export type VolumeSource =
   | { kind: 'synthetic'; options: SyntheticOptions }
-  | { kind: 'file'; file: File };
+  | { kind: 'file'; file: File }
+  /** У тетради источник — она сама: текста, который надо разбирать, там нет. */
+  | { kind: 'journal'; journalId: string };
 
 export interface VolumeRecord {
   id: string;
+  /**
+   * Том или тетрадь (SPEC §13).
+   *
+   * На полке они стоят рядом и корешок рисуется одинаково — тетрадь и есть
+   * книга, просто пустая. Различие начинается на столе: том верстается из
+   * текста, тетрадь верстать нечего, её страницы заданы.
+   */
+  kind: 'volume' | 'journal';
   title: string;
   author: string;
   format: DocFormat;
@@ -96,7 +108,12 @@ export function volumeExtent(
   metrics: PageMetrics,
   paginationKey: string | null,
 ): VolumeExtent {
-  const exact = volume.pages !== null && volume.pagesKey === paginationKey;
+  /*
+   * У тетради число страниц не оценка и не следствие набора: страницы в ней
+   * заведены, а не посчитаны, и от кегля не зависят. Ключ вёрстки ей поэтому не
+   * с чем сверять.
+   */
+  const exact = volume.kind === 'journal' || (volume.pages !== null && volume.pagesKey === paginationKey);
   const pages = exact
     ? volume.pages!
     : Math.max(2, Math.round(volume.charCount / charsPerPage(metrics)));
@@ -118,6 +135,7 @@ export function volumeFromDoc(
 ): VolumeRecord {
   return {
     id: doc.id,
+    kind: 'volume',
     title: doc.title,
     author: doc.author,
     format: doc.format,
@@ -128,5 +146,32 @@ export function volumeFromDoc(
     palette: palette ?? paletteFor(`${doc.title}|${doc.author}`),
     source,
     addedAt: Date.now(),
+  };
+}
+
+/**
+ * Запись библиотеки для тетради.
+ *
+ * Автора у тетради нет — на корешке под ним стоит дата, как её и надписывают на
+ * тетрадях. Число страниц сразу точное, поэтому корешок у неё правильной
+ * толщины с первой секунды, а не после «вёрстки».
+ */
+export function journalRecord(journal: JournalDoc, palette?: SpinePalette): VolumeRecord {
+  const extent = journalExtent(journal);
+  const year = new Date(journal.createdAt).getFullYear();
+
+  return {
+    id: journal.id,
+    kind: 'journal',
+    title: journal.title,
+    author: String(year),
+    format: 'synthetic',
+    language: 'en',
+    charCount: 0,
+    pages: extent.pages,
+    pagesKey: 'journal',
+    palette: palette ?? paletteFor(`journal|${journal.title}|${journal.id}`),
+    source: { kind: 'journal', journalId: journal.id },
+    addedAt: journal.createdAt,
   };
 }

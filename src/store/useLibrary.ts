@@ -44,6 +44,7 @@ interface LibraryState {
   pending: string | null;
 
   setView: (view: CameraView) => void;
+  add: (record: VolumeRecord) => void;
   hover: (id: string | null) => void;
   select: (id: string) => void;
   reorder: (id: string, toIndex: number) => void;
@@ -70,6 +71,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   pending: null,
 
   setView: (view) => set({ view, armed: null }),
+  add: (record) => set({ volumes: [...get().volumes, record] }),
   hover: (hovered) => set({ hovered }),
 
   /**
@@ -134,9 +136,20 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       return;
     }
 
-    set({ flight: { id, kind: 'take' }, view: 'desk', armed: null, hovered: null });
+    /*
+     * Тетрадь ложится на стол сразу, книга — когда разберётся файл. Разница не
+     * в поспешности: у тетради нечего разбирать, её содержимое уже здесь, а
+     * пустой стол на время полёта означал бы, что и рисовать не на чем.
+     */
+    set({
+      flight: { id, kind: 'take' },
+      view: 'desk',
+      armed: null,
+      hovered: null,
+      desk: volume.kind === 'journal' ? volume : get().desk,
+    });
     startFlight('take');
-    void useBook.getState().openVolume(volume);
+    if (volume.kind !== 'journal') void useBook.getState().openVolume(volume);
   },
 
   /** Полёт доиграл. */
@@ -172,12 +185,21 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   syncDesk: (doc, source) => {
     if (get().flight?.kind === 'shelve') return;
 
-    const known = get().volumes.find((v) => v.id === doc.id) ?? get().desk;
+    const previous = get().desk;
+    const known = get().volumes.find((v) => v.id === doc.id) ?? previous;
     const record: VolumeRecord = {
       ...deskRecord(doc, source),
       palette: known?.id === doc.id ? known.palette : paletteFor(`${doc.title}|${doc.author}`),
     };
-    set({ desk: record });
+
+    /*
+     * Тетрадь, которую вытеснили со стола открытым файлом, возвращается на
+     * полку. Том на её месте просто пропал бы: его текст лежит в файле, и файл
+     * никуда не делся. Тетрадь же нигде больше не хранится — исписанные
+     * страницы обязаны остаться в библиотеке, а не исчезнуть вместе со столом.
+     */
+    const returning = previous?.kind === 'journal' && previous.id !== doc.id ? [previous] : [];
+    set({ desk: record, volumes: [...get().volumes, ...returning] });
 
     if (!doc.cover) return;
     void dominantColor(doc.cover).then((hsl) => {

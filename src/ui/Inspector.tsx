@@ -13,6 +13,7 @@ import { charsPerPage } from '@/core/library/volume';
 import { CASE } from '@/scene/bookcase/caseGeometry';
 import { SPINE_CAPACITY } from '@/scene/bookcase/spineInstances';
 import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
+import { JournalInspector } from './journal/JournalInspector';
 
 /**
  * Языки, для которых имеет смысл переключаться вручную.
@@ -45,6 +46,12 @@ export function Inspector() {
 
   const shelved = useLibrary((s) => s.volumes);
   const desk = useLibrary((s) => s.desk);
+  /*
+   * На столе тетрадь — панели набора про том незачем показывать: текста, к
+   * которому они относятся, здесь нет. Кегль и поля остаются: от них зависит
+   * толщина корешков на полке, а полка на месте.
+   */
+  const writing = desk?.kind === 'journal';
 
   const margins = typography.margins;
 
@@ -53,6 +60,9 @@ export function Inspector() {
 
   return (
     <aside className="flex h-full w-[262px] shrink-0 flex-col overflow-y-auto border-l border-ink-800 bg-ink-900">
+      {writing ? <JournalInspector /> : null}
+
+      {writing ? null : (
       <Panel title="Source">
         <Stat label="Format" value={doc.format === 'synthetic' ? 'generated' : doc.format} />
         {doc.sourceBytes > 0 ? (
@@ -96,6 +106,7 @@ export function Inspector() {
           </div>
         ) : null}
       </Panel>
+      )}
 
       <Panel title="Type">
         <Row label="Size">
@@ -186,6 +197,7 @@ export function Inspector() {
         </Row>
       </Panel>
 
+      {writing ? null : (
       <Panel title="Volume">
         <Stat
           label="Pages"
@@ -205,6 +217,7 @@ export function Inspector() {
         />
         <Stat label="Composition" value={pagination ? `${Math.round(pagination.tookMs)} ms` : '—'} />
       </Panel>
+      )}
 
       <Panel title="Shelf">
         <Stat label="On the shelf" value={`${shelved.length} of ${SPINE_CAPACITY}`} />

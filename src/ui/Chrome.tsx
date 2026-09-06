@@ -1,13 +1,16 @@
 'use client';
 
 /** Верхняя строка и нижний тулбар вьюпорта. */
+import { lastSpread, sheetsToThicknessMm } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { spreadPages } from '@/scene/usePageTextures';
+import { JournalToolbar } from './journal/JournalToolbar';
 
 export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () => void; panelsHidden: boolean }) {
-  const doc = useBook((s) => s.doc);
   const pagination = useBook((s) => s.pagination);
+  const deskPages = useBook((s) => s.pages);
+  const deskSheets = useBook((s) => s.sheets);
   const status = useBook((s) => s.status);
   const currentSheet = useBook((s) => s.currentSheet);
 
@@ -17,8 +20,9 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
   const flight = useLibrary((s) => s.flight);
   const shelve = useLibrary((s) => s.shelve);
 
-  const { right } = spreadPages(currentSheet, pagination?.pageCount ?? 0);
-  const atDesk = view === 'desk';
+  const { right } = spreadPages(currentSheet, deskPages);
+  const atDesk = view !== 'case';
+  const journal = desk?.kind === 'journal';
 
   return (
     <header className="flex h-9 shrink-0 items-center justify-between border-b border-ink-800 bg-ink-900 px-3">
@@ -37,7 +41,7 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
           <>
             <span className="text-ink-600">/</span>
             <span className="max-w-[280px] truncate text-ash-100">
-              {desk ? doc.title : 'empty'}
+              {desk ? desk.title : 'empty'}
             </span>
           </>
         ) : null}
@@ -65,15 +69,20 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
             status === 'paginating' ? 'text-brass-500' : 'text-ash-400'
           }`}
         >
-          {status === 'reading'
-            ? 'reading…'
-            : status === 'paginating'
-            ? 'composing…'
-            : status === 'error'
-              ? 'error'
-              : pagination
-                ? `${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
-                : 'preparing'}
+          {/* Пустой стол — нечего и считать: цифры прошлой книги тут врут */}
+          {!desk
+            ? '—'
+            : journal
+            ? `${deskPages} pp · ${sheetsToThicknessMm(deskSheets).toFixed(1)} mm`
+            : status === 'reading'
+              ? 'reading…'
+              : status === 'paginating'
+                ? 'composing…'
+                : status === 'error'
+                  ? 'error'
+                  : pagination
+                    ? `${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
+                    : 'preparing'}
         </span>
         <button
           type="button"
@@ -89,13 +98,18 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
 }
 
 export function Toolbar() {
-  const pagination = useBook((s) => s.pagination);
+  const deskPages = useBook((s) => s.pages);
   const currentSheet = useBook((s) => s.currentSheet);
   const setSheet = useBook((s) => s.setSheet);
   const requestTurn = useBook((s) => s.requestTurn);
+  const desk = useLibrary((s) => s.desk);
 
-  const sheets = pagination?.sheetCount ?? 1;
-  const { left, right } = spreadPages(currentSheet, pagination?.pageCount ?? 0);
+  // У тетради свой тулбар: там инструменты, а не только ход по книге.
+  if (desk?.kind === 'journal') return <JournalToolbar />;
+  if (!desk) return null;
+
+  const last = lastSpread(deskPages);
+  const { left, right } = spreadPages(currentSheet, deskPages);
 
   return (
     <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-ink-700 bg-ink-900/92 px-3 py-2 backdrop-blur">
@@ -113,7 +127,7 @@ export function Toolbar() {
         type="range"
         className="w-[280px]"
         min={0}
-        max={Math.max(0, sheets - 1)}
+        max={last}
         step={1}
         value={currentSheet}
         onChange={(e) => setSheet(Number(e.target.value))}
@@ -123,7 +137,7 @@ export function Toolbar() {
       <button
         type="button"
         onClick={() => requestTurn(1)}
-        disabled={currentSheet >= sheets - 1}
+        disabled={currentSheet >= last}
         className="h-6 w-6 rounded text-ash-300 transition-colors hover:bg-ink-800 hover:text-ash-100 disabled:opacity-30"
         aria-label="Next spread"
       >

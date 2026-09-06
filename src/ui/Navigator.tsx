@@ -6,6 +6,8 @@ import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { volumeExtent } from '@/core/library/volume';
 import { typographyKey } from '@/core/paginate/paginate';
+import { JournalPages } from './journal/JournalPages';
+import { useJournal } from '@/store/useJournal';
 
 export function Navigator() {
   const doc = useBook((s) => s.doc);
@@ -25,6 +27,11 @@ export function Navigator() {
   const armed = useLibrary((s) => s.armed);
   const hover = useLibrary((s) => s.hover);
   const take = useLibrary((s) => s.take);
+  const desk = useLibrary((s) => s.desk);
+
+  const newJournal = useJournal((s) => s.create);
+
+  const writing = desk?.kind === 'journal';
 
   const typeKey = useMemo(() => typographyKey(metrics, typography), [metrics, typography]);
 
@@ -49,14 +56,21 @@ export function Navigator() {
   return (
     <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-ink-800 bg-ink-900">
       <div className="border-b border-ink-800 px-3 py-3">
-        <div className="truncate text-[13px] font-medium text-ash-100" title={doc.title}>
-          {doc.title}
+        <div
+          className="truncate text-[13px] font-medium text-ash-100"
+          title={writing ? desk!.title : doc.title}
+        >
+          {writing ? desk!.title : doc.title}
         </div>
-        <div className="truncate text-[11px] text-ash-400">{doc.author}</div>
-        <div className="tabular mt-1 text-[10.5px] text-ash-400">
-          {(doc.charCount / 1000).toFixed(0)}k characters · {doc.chapters.length} chapters
-          {doc.imageCount > 0 ? ` · ${doc.imageCount} images` : ''}
+        <div className="truncate text-[11px] text-ash-400">
+          {writing ? 'notebook' : doc.author}
         </div>
+        {writing ? null : (
+          <div className="tabular mt-1 text-[10.5px] text-ash-400">
+            {(doc.charCount / 1000).toFixed(0)}k characters · {doc.chapters.length} chapters
+            {doc.imageCount > 0 ? ` · ${doc.imageCount} images` : ''}
+          </div>
+        )}
 
         <div className="mt-2.5 flex gap-1.5">
           <button
@@ -66,7 +80,15 @@ export function Navigator() {
           >
             Open book
           </button>
-          {doc.format !== 'synthetic' ? (
+          <button
+            type="button"
+            onClick={newJournal}
+            title="Start a new notebook (N)"
+            className="h-[22px] rounded bg-ink-800 px-2 text-[11px] text-ash-400 transition-colors hover:text-ash-100"
+          >
+            notebook
+          </button>
+          {doc.format !== 'synthetic' && !writing ? (
             <button
               type="button"
               onClick={openSynthetic}
@@ -94,7 +116,7 @@ export function Navigator() {
 
       <div className="flex items-center justify-between border-b border-ink-800 px-3 py-2">
         <span className="text-[10px] font-medium uppercase tracking-[0.13em] text-ash-400">
-          {view === 'case' ? `Shelf · ${shelved.length}` : 'Contents'}
+          {view === 'case' ? `Shelf · ${shelved.length}` : writing ? 'Pages' : 'Contents'}
         </span>
         {status === 'paginating' ? (
           <span className="tabular text-[10px] text-brass-500">
@@ -144,6 +166,8 @@ export function Navigator() {
             );
           })}
         </nav>
+      ) : writing ? (
+        <JournalPages />
       ) : (
       <nav className="flex-1 overflow-y-auto py-1">
         {pagination ? (

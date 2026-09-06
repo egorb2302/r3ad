@@ -1,15 +1,14 @@
 'use client';
 
 /**
- * Переезд камеры между столом и стеллажом.
+ * Переезд камеры между столом, стеллажом и страницей тетради.
  *
- * Две сцены проекта — раскрытая книга и полка — живут в одном мире, на
- * расстоянии метра друг от друга, и переключение между ними это не смена
- * экрана, а поворот головы. Отсюда и способ: не два вьюпорта и не роутинг, а
- * один облёт камеры, во время которого видно и то, откуда уехали, и то, куда
- * приехали.
+ * Три места проекта — раскрытая книга, полка и страница под пером — живут в
+ * одном мире, и переключение между ними это не смена экрана, а поворот головы.
+ * Отсюда и способ: не три вьюпорта и не роутинг, а один облёт камеры, во время
+ * которого видно и то, откуда уехали, и то, куда приехали.
  *
- * Дистанция до стеллажа не константа: она считается из его габаритов и текущей
+ * Дистанция не константа: она считается из габаритов предмета и текущей
  * пропорции окна, иначе на широком мониторе полка тонет в пустоте, а на узком
  * не влезает по краям.
  *
@@ -22,15 +21,20 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useStore } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CASE_HEIGHT, CASE_WIDTH, CASE_Z } from '../bookcase/caseGeometry';
+import { TRIM_H, TRIM_W } from '../geometry';
 import { easeInOutCubic, flightFocus, flightPosition } from '../flight';
 
-export type CameraView = 'desk' | 'case';
+export type CameraView = 'desk' | 'case' | 'flat';
 
-/** Сколько длится переезд. Совпадает с полётом книги: они идут вместе. */
+/** Сколько длится переезд между столом и полкой. Совпадает с полётом книги. */
 const TRAVEL = 0.9;
 
-/** Воздух вокруг стеллажа в кадре. */
+/** Сколько длится наклон к тетради. Величина из SPEC §9.1. */
+const LEAN = 0.35;
+
+/** Воздух вокруг предмета в кадре, в сантиметрах. */
 const MARGIN = 8;
+const PAGE_MARGIN = 1.4;
 
 interface OrbitLike {
   enabled: boolean;
@@ -43,50 +47,98 @@ interface OrbitLike {
 interface Shot {
   position: THREE.Vector3;
   target: THREE.Vector3;
+  /**
+   * Верх кадра в мире.
+   *
+   * У стола и полки это просто «вверх», а над страницей вертикаль экрана — это
+   * глубина сцены: камера смотрит вниз, и головка страницы оказывается от
+   * читателя, то есть в −z.
+   */
+  up: THREE.Vector3;
+  /** Свободен ли ракурс: у стола и полки его крутит мышь, над страницей — нет. */
+  free: boolean;
   minDistance: number;
   maxDistance: number;
 }
 
 /** Дистанция, с которой предмет заданных габаритов целиком влезает в кадр. */
-function fitDistance(width: number, height: number, fovDeg: number, aspect: number): number {
+function fitDistance(
+  width: number,
+  height: number,
+  fovDeg: number,
+  aspect: number,
+  margin: number,
+): number {
   const half = Math.tan((fovDeg * Math.PI) / 360);
-  return Math.max((height / 2 + MARGIN) / half, (width / 2 + MARGIN) / (half * aspect));
+  return Math.max((height / 2 + margin) / half, (width / 2 + margin) / (half * aspect));
 }
 
-function shotFor(view: CameraView, fov: number, aspect: number): Shot {
-  if (view === 'desk') {
+const UP = new THREE.Vector3(0, 1, 0);
+/** Верх страницы в плоском режиме: от читателя. */
+const PAGE_UP = new THREE.Vector3(0, 0, -1);
+
+export interface FlatFocus {
+  /** Центр страницы на столе. */
+  x: number;
+  y: number;
+}
+
+function shotFor(view: CameraView, flat: FlatFocus | null, fov: number, aspect: number): Shot {
+  if (view === 'flat' && flat) {
+    const distance = fitDistance(TRIM_W, TRIM_H, fov, aspect, PAGE_MARGIN);
     return {
-      position: new THREE.Vector3(0, 42, 50),
-      target: new THREE.Vector3(0, 1.2, 0),
-      minDistance: 26,
-      maxDistance: 150,
+      position: new THREE.Vector3(flat.x, flat.y + distance, 0),
+      target: new THREE.Vector3(flat.x, flat.y, 0),
+      up: PAGE_UP,
+      free: false,
+      minDistance: distance,
+      maxDistance: distance,
     };
   }
 
-  const distance = fitDistance(CASE_WIDTH, CASE_HEIGHT, fov, aspect);
+  if (view === 'case') {
+    const distance = fitDistance(CASE_WIDTH, CASE_HEIGHT, fov, aspect, MARGIN);
+    return {
+      position: new THREE.Vector3(0, CASE_HEIGHT / 2 + 4, CASE_Z + distance),
+      target: new THREE.Vector3(0, CASE_HEIGHT / 2, CASE_Z),
+      up: UP,
+      free: true,
+      minDistance: 40,
+      maxDistance: distance + 120,
+    };
+  }
 
   return {
-    position: new THREE.Vector3(0, CASE_HEIGHT / 2 + 4, CASE_Z + distance),
-    target: new THREE.Vector3(0, CASE_HEIGHT / 2, CASE_Z),
-    minDistance: 40,
-    maxDistance: distance + 120,
+    position: new THREE.Vector3(0, 42, 50),
+    target: new THREE.Vector3(0, 1.2, 0),
+    up: UP,
+    free: true,
+    minDistance: 26,
+    maxDistance: 150,
   };
 }
 
-export function CameraRig({ view }: { view: CameraView }) {
+export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | null }) {
   const store = useStore();
 
   const travel = useRef<{
     t: number;
+    span: number;
     from: THREE.Vector3;
     fromTarget: THREE.Vector3;
+    fromUp: THREE.Vector3;
+    fromFree: boolean;
     shot: Shot;
   } | null>(null);
 
   /** Куда камера смотрит по своему ракурсу, до поправки на летящую книгу. */
   const aim = useRef(new THREE.Vector3());
+  const up = useRef(new THREE.Vector3(0, 1, 0));
   const lastShot = useRef<Shot | null>(null);
   const following = useRef(false);
+
+  const flatX = flat?.x ?? 0;
+  const flatY = flat?.y ?? 0;
 
   useEffect(() => {
     const state = store.getState();
@@ -94,12 +146,22 @@ export function CameraRig({ view }: { view: CameraView }) {
     if (!controls) return;
 
     const camera = state.camera as THREE.PerspectiveCamera;
-    const next = shotFor(view, camera.fov, state.size.width / state.size.height);
+    const next = shotFor(
+      view,
+      view === 'flat' ? { x: flatX, y: flatY } : null,
+      camera.fov,
+      state.size.width / state.size.height,
+    );
 
+    const previous = lastShot.current;
     travel.current = {
       t: 0,
+      // Наклон к тетради короче переезда: это движение головы, а не переход.
+      span: view === 'flat' || previous?.free === false ? LEAN : TRAVEL,
       from: camera.position.clone(),
       fromTarget: controls.target.clone(),
+      fromUp: camera.up.clone(),
+      fromFree: previous?.free ?? true,
       shot: next,
     };
     lastShot.current = next;
@@ -111,15 +173,18 @@ export function CameraRig({ view }: { view: CameraView }) {
     controls.minDistance = Math.min(controls.minDistance, next.minDistance);
     controls.maxDistance = Math.max(controls.maxDistance, next.maxDistance);
     controls.enabled = false;
-  }, [store, view]);
+  }, [store, view, flatX, flatY]);
 
   useFrame((state, delta) => {
     const controls = state.controls as unknown as OrbitLike | null;
     if (!controls) return;
 
     const move = travel.current;
+    const shot = move ? move.shot : lastShot.current;
     const focus = flightFocus();
-    if (!move && focus <= 0 && !following.current) return;
+    const pinned = shot ? !shot.free : false;
+
+    if (!move && focus <= 0 && !following.current && !pinned) return;
 
     /*
      * Положение камеры задаётся явно в каждом кадре, даже когда переезд уже
@@ -128,22 +193,39 @@ export function CameraRig({ view }: { view: CameraView }) {
      * полёта оказывается совсем не тем, из которого начинали.
      */
     if (move) {
-      move.t = Math.min(1, move.t + delta / TRAVEL);
+      move.t = Math.min(1, move.t + delta / move.span);
       const k = easeInOutCubic(move.t);
       state.camera.position.lerpVectors(move.from, move.shot.position, k);
       aim.current.lerpVectors(move.fromTarget, move.shot.target, k);
-    } else if (lastShot.current) {
-      state.camera.position.copy(lastShot.current.position);
-      aim.current.copy(lastShot.current.target);
+      up.current.lerpVectors(move.fromUp, move.shot.up, k).normalize();
+    } else if (shot) {
+      state.camera.position.copy(shot.position);
+      aim.current.copy(shot.target);
+      up.current.copy(shot.up);
     }
 
     /*
-     * Поправка на книгу. Ракурс задаёт, куда камера смотрит вообще, а этот
-     * сдвиг — то, что она провожает взглядом летящий том. Ноль на концах пути,
-     * поэтому у полки и у стола кадр остаётся тем, каким его выбрали.
+     * Над страницей ракурс ведём сами. OrbitControls восстанавливают положение
+     * камеры из сферических координат вокруг цели, а прямо сверху сфера
+     * вырождается — и они же не дают камере встать вертикально, у полярного
+     * угла есть предел. Пока камера лежит над тетрадью, они молчат.
      */
-    controls.target.lerpVectors(aim.current, flightPosition, focus);
-    controls.update();
+    const manual = move ? !(move.shot.free && move.fromFree) : pinned;
+
+    if (manual) {
+      state.camera.up.copy(up.current);
+      state.camera.lookAt(aim.current);
+      controls.target.copy(aim.current);
+    } else {
+      /*
+       * Поправка на книгу. Ракурс задаёт, куда камера смотрит вообще, а этот
+       * сдвиг — то, что она провожает взглядом летящий том. Ноль на концах
+       * пути, поэтому у полки и у стола кадр остаётся тем, каким его выбрали.
+       */
+      state.camera.up.copy(UP);
+      controls.target.lerpVectors(aim.current, flightPosition, focus);
+      controls.update();
+    }
 
     if (move && move.t >= 1) {
       controls.minDistance = move.shot.minDistance;
@@ -151,9 +233,9 @@ export function CameraRig({ view }: { view: CameraView }) {
       travel.current = null;
     }
 
-    // Вращать сцену, пока камера ведёт книгу, нельзя: цель уходит из-под рук.
+    // Вращать сцену, пока камера ведёт книгу или лежит над страницей, нельзя.
     following.current = focus > 0;
-    controls.enabled = !travel.current && !following.current;
+    controls.enabled = !travel.current && !following.current && !pinned;
   });
 
   return null;

@@ -30,7 +30,7 @@ import { ContactShadows, Environment, Lightformer, OrbitControls } from '@react-
 import * as THREE from 'three';
 import { Book } from './Book';
 import { Leaf } from './Leaf';
-import { COVER_H, COVER_T, COVER_W, GUTTER, TRIM_W } from './geometry';
+import { blockThickness, COVER_H, COVER_T, COVER_W, GUTTER, TRIM_H, TRIM_W } from './geometry';
 import { MAX_SPEED, motion, planTurn, releaseTarget, resetMotion, type TurnPlan } from './turn';
 import { flight } from './flight';
 import { Bookcase } from './bookcase/Bookcase';
@@ -39,14 +39,17 @@ import { FlyingVolume } from './bookcase/FlyingVolume';
 import { CASE, VOLUME_HEIGHT } from './bookcase/caseGeometry';
 import { SPINE_CAPACITY } from './bookcase/spineInstances';
 import { CameraRig } from './camera/CameraRig';
+import { FlatProbe } from './journal/FlatProbe';
+import { useJournalTextures } from './journal/useJournalTextures';
 import { DevHandle } from './DevHandle';
 import { layoutShelves } from '@/core/library/shelfLayout';
 import { paletteFor } from '@/core/library/palette';
 import { volumeExtent } from '@/core/library/volume';
 import { typographyKey } from '@/core/paginate/paginate';
-import { mm } from '@/core/units';
+import { lastSpread, mm } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
+import { spreadOf, useJournal } from '@/store/useJournal';
 import { usePageTextures } from './usePageTextures';
 
 /** Ближе этого к корешку хват за страницу не считается: рычага там нет. */
@@ -65,7 +68,8 @@ function Desk() {
 const FALLBACK_PALETTE = paletteFor('r3ad');
 
 export function Viewport() {
-  const pagination = useBook((s) => s.pagination);
+  const deskSheets = useBook((s) => s.sheets);
+  const deskPages = useBook((s) => s.pages);
   const metrics = useBook((s) => s.metrics);
   const typography = useBook((s) => s.typography);
   const currentSheet = useBook((s) => s.currentSheet);
@@ -85,7 +89,17 @@ export function Viewport() {
   const reorder = useLibrary((s) => s.reorder);
   const arrived = useLibrary((s) => s.arrived);
 
-  const pages = usePageTextures();
+  const flatPage = useJournal((s) => s.flatPage);
+
+  /*
+   * Два источника текстур разворота — том и тетрадь. Оба хука зовутся всегда:
+   * бездействующий не печатает ничего, а условный вызов хука невозможен. Кто
+   * из них показывается, решает то, что лежит на столе.
+   */
+  const printed = usePageTextures();
+  const written = useJournalTextures();
+  const journalOnDesk = desk?.kind === 'journal';
+  const pages = journalOnDesk ? written : printed;
 
   /*
    * Расстановка — чистая функция от порядка книг и набора, поэтому считается
@@ -111,8 +125,8 @@ export function Viewport() {
   const flyingPlacement = flying ? layout.byId.get(flying.id) ?? null : null;
   const palette = desk?.palette ?? flyingVolume?.palette ?? FALLBACK_PALETTE;
 
-  const sheets = pagination?.sheetCount ?? 1;
-  const pageCount = pagination?.pageCount ?? 0;
+  const sheets = deskSheets;
+  const pageCount = deskPages;
 
   /** Номер страницы или null, если за пределами книги. */
   const page = useCallback(
@@ -146,6 +160,13 @@ export function Viewport() {
 
   const { request } = pages;
   useEffect(() => {
+    /*
+     * В плоском режиме страницу закрывает холст, и печатать её ещё и в текстуру
+     * на каждый штрих значит платить дважды за то, чего не видно. Текстура
+     * догоняет документ один раз — когда от тетради поднимаются.
+     */
+    if (flatPage !== null) return;
+
     const base = turn ? turn.a : currentSheet;
     return request(
       [spread.leftPage, spread.rightPage, spread.front, spread.back],
@@ -157,6 +178,7 @@ export function Viewport() {
     page,
     turn,
     currentSheet,
+    flatPage,
     spread.leftPage,
     spread.rightPage,
     spread.front,
@@ -168,7 +190,7 @@ export function Viewport() {
       // Пока книга закрывается и летит, листать нечего.
       if (flight.active) return null;
       const state = useBook.getState();
-      const plan = planTurn(state.currentSheet, state.pagination?.sheetCount ?? 1, dir);
+      const plan = planTurn(state.currentSheet, lastSpread(state.pages), dir);
       if (!plan) return null;
 
       /*
@@ -192,6 +214,22 @@ export function Viewport() {
   }, [turnRequest, startTurn]);
 
   const onSettled = useCallback((target: number) => endTurn(target), [endTurn]);
+
+  /*
+   * Где лежит страница под пером. Высота — верх соответствующей стопки: камера
+   * должна лечь над той бумагой, которая сейчас сверху, а не над столом.
+   */
+  const side = flatPage !== null ? spreadOf(flatPage).side : 'right';
+  const flatFocus =
+    flatPage !== null && journalOnDesk
+      ? {
+          x: side === 'right' ? GUTTER + TRIM_W / 2 : -(GUTTER + TRIM_W / 2),
+          y:
+            COVER_T +
+            blockThickness(side === 'right' ? spread.rightSheets : spread.leftSheets) +
+            0.004,
+        }
+      : null;
 
   return (
     <Canvas
@@ -273,7 +311,14 @@ export function Viewport() {
       ) : null}
 
       <TurnInput onStart={startTurn} />
-      <CameraRig view={view} />
+      <CameraRig view={view} flat={flatFocus} />
+      <FlatProbe
+        x={flatFocus?.x ?? 0}
+        y={flatFocus?.y ?? 0}
+        width={TRIM_W}
+        height={TRIM_H}
+        active={flatFocus !== null}
+      />
       <DevHandle />
 
       <ContactShadows

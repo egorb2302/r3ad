@@ -18,6 +18,7 @@ import {
   type Typography,
 } from '@/core/typography';
 import { paginate, type PaginationResult } from '@/core/paginate/paginate';
+import { lastSpread } from '@/core/units';
 import type { TurnPlan } from '@/scene/turn';
 import type { VolumeRecord, VolumeSource } from '@/core/library/volume';
 import type { RasterizerProbe } from '@/core/rasterize/svgRasterizer';
@@ -47,6 +48,18 @@ interface BookState {
   metrics: PageMetrics;
 
   pagination: PaginationResult | null;
+
+  /**
+   * Что лежит на столе, в страницах и листах.
+   *
+   * Отдельно от `pagination` потому, что листают не только том. У тома объём —
+   * следствие вёрстки, у тетради — она сама: страницы в ней заведены руками.
+   * Всё, что двигает разворот — клавиши, тулбар, перетаскивание листа, — смотрит
+   * сюда и про разницу не знает.
+   */
+  pages: number;
+  sheets: number;
+
   status: Status;
   progress: { done: number; total: number };
   /** Что именно считается сейчас — распаковка файла или вёрстка. */
@@ -72,6 +85,7 @@ interface BookState {
   lastRender: RenderStat | null;
   liveTextures: number;
 
+  setExtent: (pages: number, sheets: number) => void;
   setTypography: (patch: Partial<Typography>) => void;
   setProfile: (profile: TextureProfile) => void;
   setSheet: (sheet: number) => void;
@@ -101,6 +115,8 @@ export const useBook = create<BookState>((set, get) => ({
   metrics: computeMetrics(DEFAULT_TYPOGRAPHY, 'desktop'),
 
   pagination: null,
+  pages: 0,
+  sheets: 1,
   status: 'idle',
   progress: { done: 0, total: 0 },
   stage: '',
@@ -112,6 +128,12 @@ export const useBook = create<BookState>((set, get) => ({
   probe: null,
   lastRender: null,
   liveTextures: 0,
+
+  /** Объём того, что на столе. Зовут и вёрстка тома, и тетрадь. */
+  setExtent: (pages, sheets) => {
+    set({ pages, sheets });
+    get().setSheet(get().currentSheet);
+  },
 
   setTypography: (patch) => {
     const typography = { ...get().typography, ...patch };
@@ -125,8 +147,7 @@ export const useBook = create<BookState>((set, get) => ({
   },
 
   setSheet: (sheet) => {
-    const total = get().pagination?.sheetCount ?? 1;
-    set({ currentSheet: Math.min(Math.max(sheet, 0), Math.max(0, total - 1)) });
+    set({ currentSheet: Math.min(Math.max(sheet, 0), lastSpread(get().pages)) });
   },
 
   /**
@@ -135,11 +156,10 @@ export const useBook = create<BookState>((set, get) => ({
    * упиралась бы в длительность анимации и листание казалось бы залипшим.
    */
   requestTurn: (dir) => {
-    const { turn, pagination } = get();
+    const { turn } = get();
     if (turn) {
-      const sheets = pagination?.sheetCount ?? 1;
       set({
-        currentSheet: Math.min(Math.max(turn.toSheet, 0), Math.max(0, sheets - 1)),
+        currentSheet: Math.min(Math.max(turn.toSheet, 0), lastSpread(get().pages)),
         turn: null,
       });
     }
@@ -196,13 +216,20 @@ export const useBook = create<BookState>((set, get) => ({
            * перевёрстки листов стало больше или меньше, и абсолютный номер
            * увёл бы читателя в другое место книги.
            */
+          const previousLast = previous ? lastSpread(previous.pageCount) : 0;
           const ratio =
-            keepPosition && previous && previous.sheetCount > 1
-              ? get().currentSheet / (previous.sheetCount - 1)
-              : 0;
-          const sheet = Math.round(ratio * Math.max(0, result.sheetCount - 1));
+            keepPosition && previousLast > 0 ? get().currentSheet / previousLast : 0;
+          const sheet = Math.round(ratio * lastSpread(result.pageCount));
 
-          set({ pagination: result, status: 'ready', stage: '', currentSheet: sheet, turn: null });
+          set({
+            pagination: result,
+            pages: result.pageCount,
+            sheets: result.sheetCount,
+            status: 'ready',
+            stage: '',
+            currentSheet: sheet,
+            turn: null,
+          });
         })
         .catch((err: unknown) => {
           if (local.signal.aborted || token !== runToken) return;
@@ -249,6 +276,8 @@ export const useBook = create<BookState>((set, get) => ({
         turn: null,
         // Разбивка относится к прежней книге и вместе с ней теряет смысл.
         pagination: null,
+        pages: 0,
+        sheets: 1,
       });
       get().runPagination({ keepPosition: false });
     } catch (err) {
@@ -269,6 +298,9 @@ export const useBook = create<BookState>((set, get) => ({
    * полке лежали метаданные, а не сорок распакованных архивов.
    */
   openVolume: async (volume) => {
+    // Тетрадь сюда не попадает: её содержимое не разбирают, а рисуют.
+    if (volume.source.kind === 'journal') return;
+
     if (debounceTimer) clearTimeout(debounceTimer);
     controller?.abort();
     runToken++;
@@ -302,6 +334,8 @@ export const useBook = create<BookState>((set, get) => ({
         currentSheet: 0,
         turn: null,
         pagination: null,
+        pages: 0,
+        sheets: 1,
       });
       get().runPagination({ keepPosition: false });
     } catch (err) {
@@ -324,6 +358,8 @@ export const useBook = create<BookState>((set, get) => ({
       currentSheet: 0,
       turn: null,
       pagination: null,
+      pages: 0,
+      sheets: 1,
       error: null,
     });
     get().runPagination({ keepPosition: false });

@@ -16,8 +16,9 @@
  */
 import { computeMetrics, DEFAULT_TYPOGRAPHY } from '../typography';
 import { optionsForExtent } from '../text/synthetic';
+import { demoJournal } from '../journal/demo';
 import { hashString, paletteFor } from './palette';
-import { charsPerPage, type VolumeRecord } from './volume';
+import { charsPerPage, journalRecord, type VolumeRecord } from './volume';
 
 /** Название, автор, объём в страницах при кегле 10.5 pt. */
 const CATALOGUE: [title: string, author: string, pages: number][] = [
@@ -72,12 +73,13 @@ const CATALOGUE: [title: string, author: string, pages: number][] = [
 const REFERENCE_CHARS_PER_PAGE = charsPerPage(computeMetrics(DEFAULT_TYPOGRAPHY, 'desktop'));
 
 export function demoLibrary(): VolumeRecord[] {
-  return CATALOGUE.map(([title, author, pages], index) => {
+  const volumes: VolumeRecord[] = CATALOGUE.map(([title, author, pages], index) => {
     const id = `demo-${String(index + 1).padStart(2, '0')}`;
     const charCount = pages * REFERENCE_CHARS_PER_PAGE;
 
     return {
       id,
+      kind: 'volume' as const,
       title,
       author,
       format: 'synthetic' as const,
@@ -94,4 +96,8 @@ export function demoLibrary(): VolumeRecord[] {
       addedAt: index,
     };
   });
+
+  // Тетрадь стоит там же, где книги: на полке между ними разницы нет.
+  volumes.push(journalRecord(demoJournal()));
+  return volumes;
 }

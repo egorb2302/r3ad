@@ -126,13 +126,19 @@ export interface TurnPlan {
   toSheet: number;
 }
 
+/**
+ * Границей служит последний разворот, а не число листов: у книги с чётным
+ * числом страниц последняя лежит на отдельном развороте, где справа уже ничего
+ * нет (см. lastSpread в core/units). Считать по листам значило бы не доносить
+ * читателя до последней страницы ровно на один разворот.
+ */
 export function planTurn(
   currentSheet: number,
-  sheetCount: number,
+  lastSheet: number,
   dir: 1 | -1,
 ): TurnPlan | null {
   if (dir > 0) {
-    if (currentSheet >= sheetCount - 1) return null;
+    if (currentSheet >= lastSheet) return null;
     return { a: currentSheet, from: 0, commitAt: 1, toSheet: currentSheet + 1 };
   }
   if (currentSheet <= 0) return null;
