@@ -8,9 +8,14 @@
  *
  * Все шрифты под SIL OFL — встраивание разрешено.
  *
- *   node scripts/fetch-fonts.mjs
+ *   node scripts/fetch-fonts.mjs            # докачать, если чего-то нет
+ *   node scripts/fetch-fonts.mjs --force    # забрать заново
+ *
+ * Скрипт стоит в `prebuild`: шрифты не лежат в репозитории, и на Vercel их
+ * некому положить, кроме сборки. Локально сборка от этого не должна ходить в
+ * сеть каждый раз, поэтому при полном комплекте скрипт молча выходит.
  */
-import { mkdir, writeFile, readdir, unlink } from 'node:fs/promises';
+import { access, mkdir, writeFile, readdir, readFile, unlink } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,7 +86,24 @@ function parseFaces(css) {
   return faces;
 }
 
+/** Все файлы из манифеста на месте? Тогда качать нечего. */
+async function complete() {
+  try {
+    const manifest = JSON.parse(await readFile(join(OUT, 'manifest.json'), 'utf8'));
+    if (!Array.isArray(manifest) || manifest.length === 0) return false;
+    for (const face of manifest) await access(join(OUT, face.file));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function main() {
+  if (!process.argv.includes('--force') && (await complete())) {
+    console.log('fonts: already fetched (use --force to refetch)');
+    return;
+  }
+
   await mkdir(OUT, { recursive: true });
 
   // Чистим прошлый заход, чтобы не копить осиротевшие файлы.

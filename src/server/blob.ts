@@ -15,14 +15,18 @@
  * маршрутом. Это не нарушение правила, а его частный случай: клиент по-прежнему
  * кладёт байты по адресу, который ему выдали, и не знает, кто на том конце.
  * Разница только в том, что в разработке тот конец — это мы, и лимита в 4.5 МБ
- * там нет. Когда появятся ключи Vercel Blob, `ticket` начнёт возвращать
- * подписанный адрес blob-хранилища, а маршрут заливки перестанет отвечать —
- * клиентский код при этом не изменится ни строкой.
+ * там нет. С ключом Vercel Blob в окружении `ticket` возвращает подписанный
+ * адрес blob-хранилища (см. vercelBlob.ts), а маршрут заливки перестаёт
+ * отвечать — клиентский код при этом один и тот же.
  */
 import { createHash } from 'node:crypto';
 import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { assetKey } from './keys';
 import { issueTicket, TICKET_TTL_MS } from './tokens';
+import { vercelStore } from './vercelBlob';
+
+export { ASSET_PREFIX, assetKey, snapshotKey, STORE_DIR } from './keys';
 
 export interface UploadTicket {
   hash: string;
@@ -57,26 +61,15 @@ export interface BlobStore {
   list(prefix: string): Promise<{ key: string; updatedAt: number }[]>;
 }
 
-export const ASSET_PREFIX = 'assets/';
-export const SNAPSHOT_PREFIX = 'snapshots/';
-
-/** Ключ ассета — его хэш. Ключ манифеста — версия внутри снапшота. */
-export const assetKey = (hash: string) => `${ASSET_PREFIX}${hash}`;
-export const snapshotKey = (id: string, version: number) =>
-  `${SNAPSHOT_PREFIX}${id}/${version}.json`;
-
 /* ─── Файловая реализация ───────────────────────────────────────────────── */
 
-/**
- * Куда складывать.
- *
- * На Vercel файловая система эфемерная и почти вся только для чтения (§15.1),
- * поэтому эта реализация — для разработки и для развёртывания в docker с томом,
- * о котором §15.1 говорит как о запасном пути переносимости. Каталог по
- * умолчанию лежит рядом с проектом и в git не попадает.
+/*
+ * Куда складывать. Имя каталога — литерал, а не `STORE_DIR` из keys.ts, хотя
+ * это одна и та же строка: трассировщик сборки понимает `join(cwd, 'литерал')`
+ * как доступ внутрь подкаталога, а константу из другого модуля — нет, и на
+ * всякий случай тащит в функцию весь проект вместе с `public`.
  */
-export const STORE_DIR = '.r3ad-store';
-const ROOT = join(process.cwd(), STORE_DIR);
+const ROOT = join(process.cwd(), '.r3ad-store');
 
 /**
  * Ключ приходит снаружи — значит, он должен быть разрешён, а не проверен на
@@ -169,11 +162,12 @@ function fileStore(): BlobStore {
 /**
  * Что подключено.
  *
- * Ветка на Vercel Blob появится ровно здесь и ровно одной строкой — так это и
- * задумано в §15.1: «Vercel-специфичного кода — три файла». Пока ключей нет,
- * работает файловая.
+ * Ровно одна строка, как и задумано в §15.1: ключ в окружении — работает
+ * Vercel Blob, нет ключа — файлы. Ключ Vercel подставляет сам, когда стор
+ * привязан к проекту; локально его нет, и ничего для этого делать не надо.
  */
-export const blobs: BlobStore = fileStore();
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+export const blobs: BlobStore = BLOB_TOKEN ? vercelStore(BLOB_TOKEN) : fileStore();
 
 /** Байты пришли — но те ли это байты. Хранилище адресуется содержимым. */
 export function hashOf(body: Uint8Array): string {

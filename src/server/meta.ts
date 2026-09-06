@@ -1,9 +1,9 @@
 /**
  * Реестр снапшотов.
  *
- * Второе из трёх платформо-зависимых мест (§15.1). В проде это Turso — libSQL
- * по HTTP, потому что stateless-функция не держит пул соединений; здесь —
- * тот же набор операций поверх одного JSON-файла.
+ * Второе из трёх платформо-зависимых мест (§15.1). Спека отводила ему Turso;
+ * первый деплой держит его в том же Vercel Blob, что и байты (см.
+ * vercelBlob.ts), а здесь — тот же набор операций поверх одного JSON-файла.
  *
  * Операций ровно пять, и модель данных — §13 без изменений: `Snapshot` с
  * идентификатором, версией, объёмом, признаком шифрования, списком ассетов и
@@ -16,7 +16,8 @@
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { STORE_DIR } from './blob';
+import { STORE_DIR } from './keys';
+import { blobMeta } from './vercelBlob';
 
 export type SnapshotScope = 'appearance' | 'journal' | 'volume';
 
@@ -136,7 +137,8 @@ function fileMeta(): MetaStore {
   };
 }
 
-export const meta: MetaStore = fileMeta();
+const BLOB_TOKEN = process.env.BLOB_READ_WRITE_TOKEN;
+export const meta: MetaStore = BLOB_TOKEN ? blobMeta(BLOB_TOKEN) : fileMeta();
 
 /** Срок жизни снапшота из §14. Продлевается при каждом открытии. */
 export const SNAPSHOT_TTL_MS = 90 * 24 * 60 * 60 * 1000;
