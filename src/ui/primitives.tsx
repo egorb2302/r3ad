@@ -92,3 +92,42 @@ export function Stat({ label, value, hint }: { label: string; value: ReactNode; 
     </div>
   );
 }
+
+export function Select<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: readonly { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as T)}
+      className="h-[22px] w-full rounded border border-ink-700 bg-ink-850 px-1.5 text-[11px] text-ash-200 outline-none focus:border-ink-600"
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Предупреждение от разбора файла: книга открылась, но не целиком. */
+export function Notice({ tone, children }: { tone: 'warn' | 'error'; children: ReactNode }) {
+  return (
+    <p
+      className={`rounded border px-2 py-1.5 text-[10.5px] leading-snug ${
+        tone === 'error'
+          ? 'border-red-900/70 bg-red-950/40 text-red-300'
+          : 'border-brass-900/60 bg-brass-950/30 text-brass-300'
+      }`}
+    >
+      {children}
+    </p>
+  );
+}

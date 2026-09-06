@@ -68,6 +68,75 @@ export function pageCss(m: PageMetrics, t: Typography): string {
   font-style:italic;
 }
 .r3ad-flow blockquote p{text-indent:0}
+.r3ad-flow h3,.r3ad-flow h4,.r3ad-flow h5,.r3ad-flow h6{
+  font-size:${(m.fontSizePx * 1.05).toFixed(3)}px;
+  line-height:${m.lineHeightPx.toFixed(3)}px;
+  font-weight:600;
+  margin:${m.lineHeightPx.toFixed(3)}px 0 0;
+  break-after:avoid;
+  text-align:left;
+}
+/*
+ * Иллюстрация обязана поместиться в полосу целиком.
+ *
+ * В колонке фиксированной высоты картинка выше полосы не «переезжает на
+ * следующую страницу», как в вебе, — она молча вылезает за обрез и режется
+ * посередине. Поэтому потолок задан в пикселях полосы, а не процентами:
+ * процент от высоты внутри многоколоночного контекста браузер считает
+ * непредсказуемо.
+ */
+.r3ad-flow img{
+  display:block;
+  max-width:100%;
+  max-height:${m.boxHeightPx}px;
+  height:auto;
+  margin:${(m.lineHeightPx * 0.75).toFixed(3)}px auto;
+  break-inside:avoid;
+}
+.r3ad-flow figure{margin:${m.lineHeightPx.toFixed(3)}px 0;break-inside:avoid}
+.r3ad-flow figcaption{
+  text-indent:0;
+  text-align:center;
+  font-size:${(m.fontSizePx * 0.86).toFixed(3)}px;
+  line-height:${(m.lineHeightPx * 0.86).toFixed(3)}px;
+  color:#6b6157;
+}
+.r3ad-flow ul,.r3ad-flow ol{
+  margin:${(m.lineHeightPx * 0.5).toFixed(3)}px 0 ${(m.lineHeightPx * 0.5).toFixed(3)}px ${(m.fontSizePx * 1.8).toFixed(3)}px;
+}
+.r3ad-flow li{text-indent:0;text-align:left}
+.r3ad-flow ul{list-style:disc}
+.r3ad-flow ol{list-style:decimal}
+.r3ad-flow hr{
+  border:0;
+  border-top:1px solid #cbbfa8;
+  margin:${m.lineHeightPx.toFixed(3)}px 28%;
+}
+.r3ad-flow pre{
+  white-space:pre-wrap;
+  text-indent:0;
+  text-align:left;
+  font-size:${(m.fontSizePx * 0.86).toFixed(3)}px;
+  line-height:${(m.lineHeightPx * 0.9).toFixed(3)}px;
+  margin:${(m.lineHeightPx * 0.5).toFixed(3)}px 0;
+}
+.r3ad-flow table{
+  width:100%;
+  border-collapse:collapse;
+  text-indent:0;
+  font-size:${(m.fontSizePx * 0.9).toFixed(3)}px;
+  margin:${(m.lineHeightPx * 0.5).toFixed(3)}px 0;
+  break-inside:avoid;
+}
+.r3ad-flow td,.r3ad-flow th{
+  border:1px solid #cbbfa8;
+  padding:0.22em 0.4em;
+  text-indent:0;
+  text-align:left;
+  vertical-align:top;
+}
+/* Сноски не должны раздвигать строку — иначе сбивается вертикальный ритм. */
+.r3ad-flow sup,.r3ad-flow sub{font-size:0.7em;line-height:0}
 .r3ad-flow .break{break-before:column}
 .r3ad-folio{
   position:absolute;

@@ -2,10 +2,10 @@
 
 /** Верхняя строка и нижний тулбар вьюпорта. */
 import { useBook } from '@/store/useBook';
-import { spreadPages } from '@/scene/useSpreadTextures';
+import { spreadPages } from '@/scene/usePageTextures';
 
 export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () => void; panelsHidden: boolean }) {
-  const book = useBook((s) => s.book);
+  const doc = useBook((s) => s.doc);
   const pagination = useBook((s) => s.pagination);
   const status = useBook((s) => s.status);
   const currentSheet = useBook((s) => s.currentSheet);
@@ -19,7 +19,7 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
         <span className="text-ink-600">/</span>
         <span className="text-ash-400">Desk</span>
         <span className="text-ink-600">/</span>
-        <span className="text-ash-100">{book.title}</span>
+        <span className="max-w-[280px] truncate text-ash-100">{doc.title}</span>
         {right !== null ? (
           <>
             <span className="text-ink-600">/</span>
@@ -34,7 +34,9 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
             status === 'paginating' ? 'text-brass-500' : 'text-ash-400'
           }`}
         >
-          {status === 'paginating'
+          {status === 'reading'
+            ? 'reading…'
+            : status === 'paginating'
             ? 'composing…'
             : status === 'error'
               ? 'error'
@@ -59,7 +61,7 @@ export function Toolbar() {
   const pagination = useBook((s) => s.pagination);
   const currentSheet = useBook((s) => s.currentSheet);
   const setSheet = useBook((s) => s.setSheet);
-  const turn = useBook((s) => s.turn);
+  const requestTurn = useBook((s) => s.requestTurn);
 
   const sheets = pagination?.sheetCount ?? 1;
   const { left, right } = spreadPages(currentSheet, pagination?.pageCount ?? 0);
@@ -68,7 +70,7 @@ export function Toolbar() {
     <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-ink-700 bg-ink-900/92 px-3 py-2 backdrop-blur">
       <button
         type="button"
-        onClick={() => turn(-1)}
+        onClick={() => requestTurn(-1)}
         disabled={currentSheet === 0}
         className="h-6 w-6 rounded text-ash-300 transition-colors hover:bg-ink-800 hover:text-ash-100 disabled:opacity-30"
         aria-label="Previous spread"
@@ -89,7 +91,7 @@ export function Toolbar() {
 
       <button
         type="button"
-        onClick={() => turn(1)}
+        onClick={() => requestTurn(1)}
         disabled={currentSheet >= sheets - 1}
         className="h-6 w-6 rounded text-ash-300 transition-colors hover:bg-ink-800 hover:text-ash-100 disabled:opacity-30"
         aria-label="Next spread"

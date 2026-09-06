@@ -6,59 +6,39 @@
  * Ни одного внешнего меша: вся геометрия выводится из числа страниц, потому что
  * она обязана меняться вместе с ним. Толщина блоков — прямая функция разбивки
  * (SPEC §6.3), а не подобранная на глаз константа.
+ *
+ * Толщина половин задаётся снаружи двумя числами, а не «сколько всего листов и
+ * на каком мы сейчас». Во время переворота лист не принадлежит ни левой стопке,
+ * ни правой — он в воздухе, — и сумма половин на один меньше полной. Считать это
+ * внутри книги значило бы протаскивать сюда состояние анимации.
  */
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { mm, PHYS, splitBlock } from '@/core/units';
 import { edgeTextureFor } from './materials/edgeTexture';
-
-const TRIM_W = mm(PHYS.trimWidthMm);
-const TRIM_H = mm(PHYS.trimHeightMm);
-const COVER_T = mm(PHYS.coverThicknessMm);
-const SQUARE = mm(PHYS.coverSquareMm);
-const GUTTER = mm(PHYS.hingeMm) / 2;
-
-const COVER_W = TRIM_W + SQUARE;
-const COVER_H = TRIM_H + SQUARE * 2;
-
-/** Блок нулевой толщины вырождается в плоскость — в начале и в конце книги. */
-const MIN_BLOCK = 0.004;
-
-const PAPER = '#efe6d4';
-const COVER_COLOR = '#5c2b2b';
-
-/**
- * Заглушка под текстуру страницы.
- *
- * Материал с самого начала собирается с картой, даже когда страница ещё не
- * отрисована: если map появляется позже, three пересобирает шейдер, и первый
- * кадр после подстановки текстуры даёт заметную задержку. Один кремовый пиксель
- * стоит ничего и снимает вопрос.
- */
-const BLANK_PAGE = (() => {
-  const rgba = new THREE.Color(PAPER).convertLinearToSRGB();
-  const texture = new THREE.DataTexture(
-    new Uint8Array([Math.round(rgba.r * 255), Math.round(rgba.g * 255), Math.round(rgba.b * 255), 255]),
-    1,
-    1,
-  );
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.needsUpdate = true;
-  return texture;
-})();
+import {
+  BLANK_PAGE,
+  blockThickness,
+  COVER_COLOR,
+  COVER_H,
+  COVER_T,
+  COVER_W,
+  GUTTER,
+  PAPER,
+  TRIM_H,
+  TRIM_W,
+} from './geometry';
 
 interface HalfProps {
   side: 'left' | 'right';
-  thickness: number;
   sheets: number;
   texture: THREE.Texture | null;
 }
 
-function Half({ side, thickness, sheets, texture }: HalfProps) {
+function Half({ side, sheets, texture }: HalfProps) {
   const dir = side === 'right' ? 1 : -1;
-  const block = Math.max(thickness, MIN_BLOCK);
+  const block = blockThickness(sheets);
 
-  const edge = useMemo(() => edgeTextureFor(sheets, TRIM_H), [sheets]);
+  const edge = useMemo(() => edgeTextureFor(Math.max(1, sheets), TRIM_H), [sheets]);
 
   /**
    * Порядок материалов BoxGeometry: +x, -x, +y, -y, +z, -z.
@@ -109,10 +89,8 @@ function Half({ side, thickness, sheets, texture }: HalfProps) {
 }
 
 export interface BookProps {
-  /** Всего листов в томе — задаёт толщину блока. */
-  sheets: number;
-  /** На каком листе открыт — делит блок на прочитанное и непрочитанное. */
-  currentSheet: number;
+  leftSheets: number;
+  rightSheets: number;
   leftPage: THREE.Texture | null;
   rightPage: THREE.Texture | null;
 }
@@ -125,23 +103,11 @@ export interface BookProps {
  * не щёлкнут мышью — книга остаётся пустой при уже посчитанной вёрстке.
  * Состояние читается снаружи, во Viewport, и втекает сюда пропсами.
  */
-export function Book({ sheets, currentSheet, leftPage, rightPage }: BookProps) {
-  const split = splitBlock(sheets, currentSheet);
-
+export function Book({ leftSheets, rightSheets, leftPage, rightPage }: BookProps) {
   return (
     <group position={[0, 0, 0]}>
-      <Half
-        side="left"
-        thickness={mm(split.leftMm)}
-        sheets={Math.max(1, currentSheet)}
-        texture={leftPage}
-      />
-      <Half
-        side="right"
-        thickness={mm(split.rightMm)}
-        sheets={Math.max(1, sheets - currentSheet)}
-        texture={rightPage}
-      />
+      <Half side="left" sheets={leftSheets} texture={leftPage} />
+      <Half side="right" sheets={rightSheets} texture={rightPage} />
 
       {/* Корешок под жёлобом: соединяет крышки и прячет разрыв между блоками */}
       <mesh position={[0, COVER_T / 2, 0]} receiveShadow>

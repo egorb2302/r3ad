@@ -8,9 +8,26 @@
  */
 import { useBook } from '@/store/useBook';
 import { linesPerPage } from '@/core/typography';
-import { Panel, Row, Slider, Stat, Toggle } from './primitives';
+import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
+
+/**
+ * Языки, для которых имеет смысл переключаться вручную.
+ *
+ * Список короткий намеренно: язык влияет на словарь переносов, а значит на
+ * число страниц и толщину тома. Из EPUB он приезжает сам, руками его меняют
+ * только для txt и markdown, где взять его неоткуда.
+ */
+const LANGUAGES = [
+  { value: 'en', label: 'English' },
+  { value: 'ru', label: 'Русский' },
+  { value: 'de', label: 'Deutsch' },
+  { value: 'fr', label: 'Français' },
+  { value: 'es', label: 'Español' },
+  { value: 'it', label: 'Italiano' },
+] as const;
 
 export function Inspector() {
+  const doc = useBook((s) => s.doc);
   const typography = useBook((s) => s.typography);
   const metrics = useBook((s) => s.metrics);
   const profile = useBook((s) => s.profile);
@@ -24,8 +41,55 @@ export function Inspector() {
 
   const margins = typography.margins;
 
+  // Язык книги может быть 'en-GB' — в списке такого нет, показываем базовый.
+  const langOption = LANGUAGES.find((l) => typography.lang.startsWith(l.value))?.value ?? 'en';
+
   return (
     <aside className="flex h-full w-[262px] shrink-0 flex-col overflow-y-auto border-l border-ink-800 bg-ink-900">
+      <Panel title="Source">
+        <Stat label="Format" value={doc.format === 'synthetic' ? 'generated' : doc.format} />
+        {doc.sourceBytes > 0 ? (
+          <Stat label="File" value={`${(doc.sourceBytes / 1024 / 1024).toFixed(2)} MB`} />
+        ) : null}
+        <Stat label="Chapters" value={doc.chapters.length} />
+        {doc.imageCount > 0 ? (
+          <Stat
+            label="Images"
+            value={`${doc.imageCount} · ${(doc.imageBytes / 1024).toFixed(0)} KB`}
+            hint="Inlined as data URIs — the rasterizer cannot fetch anything else"
+          />
+        ) : null}
+        {/*
+          Только для файлов. У синтетики время генерации меряется и на сервере,
+          и в браузере, значения не совпадают — и React ругается на расхождение
+          разметки при гидратации.
+        */}
+        {doc.sourceBytes > 0 ? (
+          <Stat label="Parsed in" value={`${Math.round(doc.tookMs)} ms`} />
+        ) : null}
+        <Row label="Language">
+          <Select
+            value={langOption}
+            options={LANGUAGES}
+            onChange={(lang) => setTypography({ lang })}
+          />
+        </Row>
+        {doc.warnings.length > 0 ? (
+          <div className="mt-2 flex flex-col gap-1.5">
+            {doc.warnings.slice(0, 4).map((w, i) => (
+              <Notice key={i} tone="warn">
+                {w.message}
+              </Notice>
+            ))}
+            {doc.warnings.length > 4 ? (
+              <span className="text-[10.5px] text-ash-400">
+                +{doc.warnings.length - 4} more parse warnings
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+      </Panel>
+
       <Panel title="Type">
         <Row label="Size">
           <Slider
@@ -153,7 +217,12 @@ export function Inspector() {
         <Stat
           label="Page"
           value={lastRender ? `${lastRender.ms.toFixed(0)} ms` : '—'}
-          hint="Budget — 40 ms per page"
+          hint={
+            lastRender
+              ? `Budget — 40 ms per page.
+build ${lastRender.timings.build.toFixed(1)} · decode ${lastRender.timings.decode.toFixed(1)} · blit ${lastRender.timings.blit.toFixed(1)} ms`
+              : 'Budget — 40 ms per page'
+          }
         />
         <Stat label="SVG size" value={lastRender ? `${lastRender.svgKb.toFixed(0)} KB` : '—'} />
         <Stat

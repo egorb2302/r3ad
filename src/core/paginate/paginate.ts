@@ -7,14 +7,11 @@
  * начинается с новой страницы.
  */
 import { Compositor } from './compositor';
+import type { Chapter } from '../content';
 import type { PageMetrics, Typography } from '../typography';
 import { pagesToSheets, sheetsToThicknessMm } from '../units';
 
-export interface Chapter {
-  id: string;
-  title: string;
-  html: string;
-}
+export type { Chapter };
 
 export interface PageRef {
   /** Сквозной номер страницы, с нуля. */

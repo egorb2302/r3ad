@@ -4,15 +4,20 @@
  * Кэш текстур страниц с вытеснением по LRU.
  *
  * Текстура страницы — самый дорогой ресурс проекта: 1024×1452 RGBA с мипами
- * это ~8 МБ. Держать всю книгу невозможно физически, поэтому живут только
- * текущий разворот и соседние. Всё остальное диспозится немедленно — утечка
- * здесь означает вылет вкладки на пятидесятой странице (SPEC §6.5).
+ * это ~8 МБ. Держать всю книгу невозможно физически, поэтому живут только те
+ * страницы, которые сейчас на экране или вот-вот там окажутся. Всё остальное
+ * диспозится немедленно — утечка здесь означает вылет вкладки на пятидесятой
+ * странице (SPEC §6.5).
+ *
+ * Наружу отдаётся не «текстуры разворота», а доступ по номеру страницы:
+ * во время переворота на экране одновременно четыре страницы — обе неподвижные
+ * и обе стороны летящего листа, — и знать, какие именно, должна сцена, а не кэш.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PageRenderer } from '@/core/render/pageRenderer';
 import { releaseCanvas } from '@/core/rasterize/svgRasterizer';
-import { useBook } from '@/store/useBook';
+import { useBook, type RenderStat } from '@/store/useBook';
 
 const MAX_LIVE = 8;
 
@@ -27,8 +32,8 @@ class TextureCache {
 
   constructor(
     private renderer: PageRenderer,
-    private onStat: (stat: { ms: number; svgKb: number; fontKb: number; fontFiles: string[] }) => void,
-    private onSize: (n: number) => void,
+    private onStat: (stat: RenderStat) => void,
+    private onChange: (size: number) => void,
   ) {}
 
   peek(index: number): THREE.Texture | undefined {
@@ -60,8 +65,14 @@ class TextureCache {
 
         this.entries.set(index, { texture, canvas: page.canvas });
         this.evict();
-        this.onStat({ ms: page.ms, svgKb: page.svgKb, fontKb: page.fontKb, fontFiles: page.fontFiles });
-        this.onSize(this.entries.size);
+        this.onStat({
+          ms: page.ms,
+          timings: page.timings,
+          svgKb: page.svgKb,
+          fontKb: page.fontKb,
+          fontFiles: page.fontFiles,
+        });
+        this.onChange(this.entries.size);
         return texture;
       })
       .catch(() => null)
@@ -91,16 +102,8 @@ class TextureCache {
     }
     this.entries.clear();
     this.pending.clear();
-    this.onSize(0);
+    this.onChange(0);
   }
-}
-
-export interface SpreadTextures {
-  left: THREE.Texture | null;
-  right: THREE.Texture | null;
-  /** Номера страниц разворота, с единицы. null — форзац или конец книги. */
-  leftPage: number | null;
-  rightPage: number | null;
 }
 
 /**
@@ -116,22 +119,31 @@ export function spreadPages(sheet: number, pageCount: number) {
   };
 }
 
-export function useSpreadTextures(): SpreadTextures {
+export interface PageTextures {
+  /** Готовая текстура страницы или null, если ещё считается. */
+  get: (index: number | null | undefined) => THREE.Texture | null;
+  /**
+   * Что нужно сейчас и что понадобится следом. Первые считаются сразу,
+   * вторые — в простое, чтобы листание не ждало растеризации.
+   */
+  request: (needed: (number | null | undefined)[], soon?: (number | null | undefined)[]) => void;
+}
+
+const clean = (list: (number | null | undefined)[]) =>
+  list.filter((i): i is number => typeof i === 'number' && i >= 0);
+
+export function usePageTextures(): PageTextures {
   const pagination = useBook((s) => s.pagination);
   const metrics = useBook((s) => s.metrics);
   const typography = useBook((s) => s.typography);
-  const chapters = useBook((s) => s.book.chapters);
-  const sheet = useBook((s) => s.currentSheet);
+  const chapters = useBook((s) => s.doc.chapters);
   const noteRender = useBook((s) => s.noteRender);
   const setLiveTextures = useBook((s) => s.setLiveTextures);
 
   const cacheRef = useRef<TextureCache | null>(null);
-  const [spread, setSpread] = useState<SpreadTextures>({
-    left: null,
-    right: null,
-    leftPage: null,
-    rightPage: null,
-  });
+  // Счётчик пробуждений: текстуры приезжают асинхронно, и сцену надо
+  // перерисовать ровно тогда, когда очередная встала в кэш.
+  const [, bump] = useState(0);
 
   // Смена разбивки означает, что все прежние текстуры относятся к другой вёрстке.
   useEffect(() => {
@@ -148,40 +160,43 @@ export function useSpreadTextures(): SpreadTextures {
     };
   }, [pagination, metrics, typography, chapters, noteRender, setLiveTextures]);
 
-  useEffect(() => {
-    const cache = cacheRef.current;
-    if (!cache || !pagination) return;
+  const get = useCallback((index: number | null | undefined) => {
+    if (typeof index !== 'number' || index < 0) return null;
+    return cacheRef.current?.peek(index) ?? null;
+  }, []);
 
-    let cancelled = false;
-    const { left, right } = spreadPages(sheet, pagination.pageCount);
+  const request = useCallback(
+    (needed: (number | null | undefined)[], soon: (number | null | undefined)[] = []) => {
+      const cache = cacheRef.current;
+      if (!cache) return;
 
-    setSpread((prev) => ({ ...prev, leftPage: left, rightPage: right }));
+      let alive = true;
+      const wake = () => {
+        if (alive) bump((v) => v + 1);
+      };
 
-    Promise.all([
-      left === null ? Promise.resolve(null) : cache.request(left),
-      right === null ? Promise.resolve(null) : cache.request(right),
-    ]).then(([l, r]) => {
-      if (cancelled) return;
-      setSpread({ left: l, right: r, leftPage: left, rightPage: right });
-    });
-
-    // Соседние развороты готовим в простое, чтобы листание не ждало растеризации.
-    const idle = requestIdleCallbackSafe(() => {
-      if (cancelled) return;
-      for (const ahead of [sheet + 1, sheet - 1]) {
-        const next = spreadPages(ahead, pagination.pageCount);
-        if (next.left !== null) void cache.request(next.left);
-        if (next.right !== null) void cache.request(next.right);
+      for (const index of clean(needed)) {
+        if (cache.peek(index)) continue;
+        void cache.request(index).then(wake);
       }
-    });
 
-    return () => {
-      cancelled = true;
-      cancelIdleCallbackSafe(idle);
-    };
-  }, [sheet, pagination]);
+      const idle = requestIdleCallbackSafe(() => {
+        if (!alive) return;
+        for (const index of clean(soon)) {
+          if (cache.peek(index)) continue;
+          void cache.request(index).then(wake);
+        }
+      });
 
-  return spread;
+      return () => {
+        alive = false;
+        cancelIdleCallbackSafe(idle);
+      };
+    },
+    [],
+  );
+
+  return { get, request };
 }
 
 /**

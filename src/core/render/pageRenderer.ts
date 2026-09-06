@@ -15,6 +15,8 @@ export interface RenderedPage {
   index: number;
   canvas: HTMLCanvasElement;
   ms: number;
+  /** Разбивка времени: сборка разметки, декодирование SVG, перенос на холст. */
+  timings: { build: number; decode: number; blit: number };
   svgKb: number;
   fontKb: number;
   fontFiles: string[];
@@ -22,6 +24,10 @@ export interface RenderedPage {
 
 /** Правая страница книги — нечётная, у неё внутреннее поле слева. */
 const isRecto = (pageIndex: number) => pageIndex % 2 === 0;
+
+/** Прозрачный пиксель — подмена для иллюстраций, которых на этой странице нет. */
+const BLANK_PIXEL =
+  'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 export class PageRenderer {
   private compositor: Compositor;
@@ -74,6 +80,7 @@ export class PageRenderer {
       this.loadedChapter = ref.chapterId;
     }
     this.compositor.seek(ref.column);
+    const restoreImages = this.hideImagesOutsideColumn();
 
     const m = this.metrics;
     const recto = isRecto(pageIndex);
@@ -91,25 +98,65 @@ export class PageRenderer {
       this.stylesInUse(),
     );
 
-    const { canvas, timings, svgBytes } = await rasterize({
-      node: this.compositor.node,
-      widthPx: m.pageWidthPx,
-      heightPx: m.pageHeightPx,
-      css: this.compositor.css,
-      fontCss: font.css,
-      background: '#f6f1e6',
-      offsetX,
-      offsetY: m.marginTopPx,
-      overlayHtml,
-    });
+    let result;
+    try {
+      result = await rasterize({
+        node: this.compositor.node,
+        widthPx: m.pageWidthPx,
+        heightPx: m.pageHeightPx,
+        css: this.compositor.css,
+        fontCss: font.css,
+        background: '#f6f1e6',
+        offsetX,
+        offsetY: m.marginTopPx,
+        overlayHtml,
+      });
+    } finally {
+      restoreImages();
+    }
+    const { canvas, timings, svgBytes } = result;
 
     return {
       index: pageIndex,
       canvas,
       ms: timings.total,
+      timings: { build: timings.build, decode: timings.decode, blit: timings.blit },
       svgKb: svgBytes / 1024,
       fontKb: font.bytes / 1024,
       fontFiles: font.files,
+    };
+  }
+
+  /**
+   * Убрать из разметки иллюстрации, не попавшие в текущую колонку.
+   *
+   * Картинки книги лежат в HTML как base64 — иначе внутри SVG они не
+   * отрисуются (SPEC §6.4). Но в композиторе лежит глава целиком, и в SVG
+   * каждой её страницы уезжали бы все иллюстрации главы разом: пять картинок
+   * по 80 КБ превращаются в лишние 400 КБ разметки и лишние миллисекунды
+   * декодирования на каждой странице, включая те, где картинок нет вовсе.
+   *
+   * Подменять src безопасно ровно потому, что санитайзер проставил каждой
+   * картинке width и height: бокс задан атрибутами, а не содержимым, и от
+   * подмены вёрстка не шелохнётся.
+   */
+  private hideImagesOutsideColumn(): () => void {
+    const images = this.compositor.node.querySelectorAll('img');
+    if (images.length === 0) return () => {};
+
+    const clip = this.compositor.node.getBoundingClientRect();
+    const hidden: { el: Element; src: string }[] = [];
+
+    for (const img of images) {
+      const box = img.getBoundingClientRect();
+      const outside = box.right <= clip.left || box.left >= clip.right;
+      if (!outside) continue;
+      hidden.push({ el: img, src: img.getAttribute('src') ?? '' });
+      img.setAttribute('src', BLANK_PIXEL);
+    }
+
+    return () => {
+      for (const { el, src } of hidden) el.setAttribute('src', src);
     };
   }
 

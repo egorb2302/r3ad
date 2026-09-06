@@ -47,6 +47,10 @@
   --color-ash-100: #ede4d7;
   --color-brass-500: #d9a441;
   --color-brass-400: #e7bb66;
+  --color-brass-300: #f0d29a;
+  /* Тёмные оттенки латуни — фон и рамка предупреждений. */
+  --color-brass-900: #4a3517;
+  --color-brass-950: #291d0c;
   --font-ui: 'Inter', system-ui, sans-serif;
 }
 
