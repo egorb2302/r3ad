@@ -85,6 +85,16 @@ export function Spines({
   const mesh = useRef<THREE.InstancedMesh>(null);
   const anim = useRef(new Map<string, AnimState>());
   const drag = useRef<DragState | null>(null);
+  /**
+   * Состав ряда сменился — габаритную сферу надо пересчитать.
+   *
+   * Отрисовке она больше не нужна (ряд не отсекается), но по ней отсекает
+   * попадания `raycast`: посчитанная один раз на пустом ряду, она оставила бы
+   * корешки и без наведения, и без щелчка. Пересчёт стоит перебора матриц, а
+   * не кадра, поэтому делается по изменению ряда, а не каждый кадр — подъём
+   * корешка под курсором в неё и так укладывается.
+   */
+  const remeasure = useRef(true);
 
   /*
    * Камера, холст и OrbitControls берутся из стора R3F вызовом, а не хуком:
@@ -109,7 +119,15 @@ export function Spines({
       cells.setXYZW(i, cell.u0, cell.v0, cell.du, cell.dv);
     }
     cells.needsUpdate = true;
-  }, [visible, volumes]);
+    remeasure.current = true;
+    /*
+     * Кадр приходится просить самим. Атлас и клетки — это буферы и холст, а не
+     * свойства элемента: R3F о такой правке не знает и луп, работающий по
+     * требованию, из-за неё не проснётся. Книга, добавленная в библиотеку,
+     * оставалась бы ненапечатанной до первого движения мышью.
+     */
+    store.getState().invalidate();
+  }, [store, visible, volumes]);
 
   useFrame((frame, delta) => {
     const node = mesh.current;
@@ -154,6 +172,11 @@ export function Spines({
     node.count = visible.length;
     node.instanceMatrix.needsUpdate = true;
     tints.needsUpdate = true;
+
+    if (remeasure.current) {
+      node.computeBoundingSphere();
+      remeasure.current = false;
+    }
 
     if (settling || held) frame.invalidate();
   });
@@ -276,6 +299,19 @@ export function Spines({
     <instancedMesh
       ref={mesh}
       args={[undefined, undefined, SPINE_CAPACITY]}
+      /*
+       * Ряд не отсекается по пирамиде видимости, и это не оптимизация наоборот.
+       * Габаритная сфера инстансированного меша считается один раз — при первом
+       * отсечении — и больше не пересчитывается, сколько потом ни переписывай
+       * матрицы. Считается она, стало быть, на пустом ряду: библиотека приезжает
+       * из IndexedDB позже первого кадра, count тогда ноль, и сфера выходит
+       * пустой — с центром в нуле сцены и отрицательным радиусом. Дальше ряд
+       * виден ровно тогда, когда в кадр попадает начало координат, то есть книга
+       * на столе: у стеллажа корешки пропадали и появлялись от поворота камеры.
+       * Пересчитывать сферу каждый кадр незачем — весь ряд это один вызов
+       * отрисовки, и отсекать в нём нечего.
+       */
+      frustumCulled={false}
       castShadow
       receiveShadow
       onPointerDown={onPointerDown}

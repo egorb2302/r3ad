@@ -29,6 +29,16 @@ interface Entry {
 class TextureCache {
   private entries = new Map<number, Entry>();
   private pending = new Map<number, Promise<THREE.Texture | null>>();
+  /**
+   * Страницы, которые сейчас на экране.
+   *
+   * Их нельзя вытеснять ни при каком потолке: вытеснение диспозит текстуру и
+   * обнуляет холст под ней, то есть страница на экране становится пустой.
+   * Ровно это и происходило на телефоне — там потолок четыре, а во время
+   * переворота на экране четыре страницы, и первая же приехавшая из
+   * предпечати выбивала одну из видимых.
+   */
+  private pinned = new Set<number>();
 
   constructor(
     private renderer: PageRenderer,
@@ -42,6 +52,21 @@ class TextureCache {
     private onStat: (stat: RenderStat) => void,
     private onChange: (size: number) => void,
   ) {}
+
+  /** Что сейчас на экране: это не вытесняется, и на это не считается запас. */
+  pin(pages: number[]) {
+    this.pinned = new Set(pages);
+  }
+
+  /**
+   * Сколько текстур можно занять под запас — сверх экранных.
+   *
+   * Ноль означает «предпечатать нечего»: всё, что можно держать, занято тем,
+   * что видно. Так и должно быть на телефоне во время переворота.
+   */
+  spare(): number {
+    return Math.max(0, this.cap() - this.pinned.size);
+  }
 
   peek(index: number): THREE.Texture | undefined {
     const hit = this.entries.get(index);
@@ -91,14 +116,27 @@ class TextureCache {
     return job;
   }
 
+  /** Потолок живых текстур. Ниже четырёх не опускается ни на каком железе. */
+  private cap(): number {
+    return Math.max(4, this.limit);
+  }
+
+  /**
+   * Вытеснение по LRU, но мимо экранных.
+   *
+   * Порядок Map — это и есть давность обращения, поэтому идём с начала и
+   * пропускаем закреплённые. Потолок при этом не может оказаться ниже числа
+   * экранных страниц: лучше подержать на одну текстуру больше, чем стереть
+   * страницу, на которую человек смотрит.
+   */
   private evict() {
-    while (this.entries.size > Math.max(4, this.limit)) {
-      const oldest = this.entries.keys().next().value as number | undefined;
-      if (oldest === undefined) break;
-      const entry = this.entries.get(oldest)!;
+    const cap = Math.max(this.cap(), this.pinned.size);
+    for (const [index, entry] of this.entries) {
+      if (this.entries.size <= cap) break;
+      if (this.pinned.has(index)) continue;
       entry.texture.dispose();
       releaseCanvas(entry.canvas);
-      this.entries.delete(oldest);
+      this.entries.delete(index);
     }
   }
 
@@ -167,6 +205,7 @@ export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
     // Печатаем то, что было заказано у прежнего кэша. Пробуждение — то же, что
     // и в `request`: текстура приезжает асинхронно, и сцену будит её приезд.
     let alive = true;
+    cache.pin(wanted.current.needed);
     for (const index of wanted.current.needed) {
       void cache.request(index).then(() => {
         if (alive) bump((v) => v + 1);
@@ -191,21 +230,34 @@ export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
       const cache = cacheRef.current;
       if (!cache) return;
 
-      wanted.current = { needed: clean(needed), soon: clean(soon) };
+      const want = clean(needed);
+      wanted.current = { needed: want, soon: clean(soon) };
 
       let alive = true;
       const wake = () => {
         if (alive) bump((v) => v + 1);
       };
 
-      for (const index of clean(needed)) {
+      // Сначала закрепляем экранные: всё, что печатается следом, не должно их
+      // выбить, а запас считается уже от остатка.
+      cache.pin(want);
+      for (const index of want) {
         if (cache.peek(index)) continue;
         void cache.request(index).then(wake);
       }
 
       const idle = requestIdleCallbackSafe(() => {
         if (!alive) return;
+        /*
+         * Предпечать берёт только свободные места. Без этого счёта она
+         * заказывает вчетверо больше, чем кэш может держать, и разница уходит
+         * в вытеснение — то есть в стирание уже напечатанного, включая то, что
+         * прямо сейчас на экране.
+         */
+        let room = cache.spare();
         for (const index of clean(soon)) {
+          if (room <= 0) break;
+          room -= 1;
           if (cache.peek(index)) continue;
           void cache.request(index).then(wake);
         }

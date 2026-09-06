@@ -131,20 +131,27 @@ export function useJournalTextures(tint: PaperTint, limit = MAX_LIVE): PageTextu
     (needed: (number | null | undefined)[]) => {
       if (!journal) return;
 
+      // Что сейчас на экране: это не вытесняется. Во время переворота таких
+      // страниц четыре — ровно столько же, сколько потолок на телефоне, — и
+      // вытеснение «самой давней» стёрло бы одну из видимых.
+      const shown = new Set<PageDoc>();
       let painted = false;
       for (const index of needed) {
         const page = pageAt(index);
-        if (!page || cache.current.has(page)) continue;
+        if (!page) continue;
+        shown.add(page);
+        if (cache.current.has(page)) continue;
         cache.current.set(page, paintTexture(page, widthPx, heightPx, { tint, rule }));
         painted = true;
       }
 
-      // Map хранит порядок вставки — вытесняем самую давнюю.
-      while (cache.current.size > Math.max(4, limit)) {
-        const oldest = cache.current.keys().next().value as PageDoc | undefined;
-        if (!oldest) break;
-        release(cache.current.get(oldest)!);
-        cache.current.delete(oldest);
+      // Map хранит порядок вставки — вытесняем самую давнюю, но мимо экранных.
+      const cap = Math.max(4, limit, shown.size);
+      for (const [page, entry] of cache.current) {
+        if (cache.current.size <= cap) break;
+        if (shown.has(page)) continue;
+        release(entry);
+        cache.current.delete(page);
       }
 
       if (painted) bump((v) => v + 1);
