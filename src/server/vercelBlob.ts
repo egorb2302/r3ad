@@ -23,6 +23,7 @@
  * чушь под своим же хэшом может только сам заливающий, и испортит он этим
  * только свой снимок.
  */
+import { randomBytes } from 'node:crypto';
 import {
   BlobNotFoundError,
   del,
@@ -210,7 +211,13 @@ export function vercelStore(auth: BlobCredentials): BlobStore {
 /**
  * Реестр поверх того же блоба.
  *
- * Запись снапшота — приватный JSON под `meta/<id>/<время>.<срок>.json`.
+ * Запись снапшота — JSON под `meta/<id>/<время>.<срок>.<случайное>.json`.
+ * Стор публичный целиком — приватных записей в публичном сторе Vercel не
+ * даёт, — поэтому запись читается по прямому адресу любым, кто его знает.
+ * Знать его неоткуда: список по префиксу отдаётся только с правами стора, а
+ * в имени случайный хвост. Да и содержимое не секрет: название, хэши ассетов
+ * и sha256 токена владения, который обратно не разворачивается.
+ *
  * Три решения, без которых это не работало бы:
  *
  * — **Запись не перезаписывается, а кладётся рядом, новым именем.** У блоба
@@ -234,7 +241,7 @@ export function vercelStore(auth: BlobCredentials): BlobStore {
 export function blobMeta(auth: BlobCredentials): MetaStore {
   const folder = (id: string) => `${META_PREFIX}${id}/`;
   const nameOf = (id: string, expiresAt: number) =>
-    `${folder(id)}${String(Date.now()).padStart(14, '0')}.${expiresAt}.json`;
+    `${folder(id)}${String(Date.now()).padStart(14, '0')}.${expiresAt}.${randomBytes(9).toString('base64url')}.json`;
 
   interface Entry {
     pathname: string;
@@ -248,7 +255,7 @@ export function blobMeta(auth: BlobCredentials): MetaStore {
     do {
       const page = await list({ ...auth, prefix, cursor, limit: 1000 });
       for (const blob of page.blobs) {
-        const match = /\/\d+\.(\d+)\.json$/.exec(blob.pathname);
+        const match = /\/\d+\.(\d+)\.[\w-]+\.json$/.exec(blob.pathname);
         if (match) out.push({ pathname: blob.pathname, expiresAt: Number(match[1]) });
       }
       cursor = page.hasMore ? page.cursor : undefined;
@@ -267,7 +274,8 @@ export function blobMeta(auth: BlobCredentials): MetaStore {
   };
 
   const open = async (pathname: string): Promise<SnapshotRecord | null> => {
-    const result = await get(pathname, { ...auth, access: 'private', useCache: false });
+    // Имя уникально на запись, кэш CDN ничего не подменит.
+    const result = await get(pathname, { ...auth, access: 'public' });
     if (!result || result.statusCode !== 200) return null;
     return JSON.parse(await new Response(result.stream).text()) as SnapshotRecord;
   };
@@ -289,7 +297,7 @@ export function blobMeta(auth: BlobCredentials): MetaStore {
       const before = await entries(folder(record.id));
       await put(nameOf(record.id, record.expiresAt), JSON.stringify(record), {
         ...auth,
-        access: 'private',
+        access: 'public',
         contentType: 'application/json',
         addRandomSuffix: false,
         cacheControlMaxAge: 60,
