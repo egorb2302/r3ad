@@ -24,7 +24,6 @@ export const COVER_H = TRIM_H + SQUARE * 2;
 export const MIN_BLOCK = 0.004;
 
 export const PAPER = '#efe6d4';
-export const COVER_COLOR = '#5c2b2b';
 
 /** Толщина блока в единицах сцены по числу листов. */
 export const blockThickness = (sheets: number) =>

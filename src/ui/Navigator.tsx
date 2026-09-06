@@ -1,8 +1,11 @@
 'use client';
 
-/** Левая панель — источник, оглавление и положение в книге. */
+/** Левая панель — источник, оглавление и положение в книге; у стеллажа — список полки. */
 import { useMemo, useRef } from 'react';
 import { useBook } from '@/store/useBook';
+import { useLibrary } from '@/store/useLibrary';
+import { volumeExtent } from '@/core/library/volume';
+import { typographyKey } from '@/core/paginate/paginate';
 
 export function Navigator() {
   const doc = useBook((s) => s.doc);
@@ -13,6 +16,17 @@ export function Navigator() {
   const setSheet = useBook((s) => s.setSheet);
   const open = useBook((s) => s.open);
   const openSynthetic = useBook((s) => s.openSynthetic);
+  const metrics = useBook((s) => s.metrics);
+  const typography = useBook((s) => s.typography);
+
+  const view = useLibrary((s) => s.view);
+  const shelved = useLibrary((s) => s.volumes);
+  const hovered = useLibrary((s) => s.hovered);
+  const armed = useLibrary((s) => s.armed);
+  const hover = useLibrary((s) => s.hover);
+  const take = useLibrary((s) => s.take);
+
+  const typeKey = useMemo(() => typographyKey(metrics, typography), [metrics, typography]);
 
   const input = useRef<HTMLInputElement>(null);
 
@@ -80,7 +94,7 @@ export function Navigator() {
 
       <div className="flex items-center justify-between border-b border-ink-800 px-3 py-2">
         <span className="text-[10px] font-medium uppercase tracking-[0.13em] text-ash-400">
-          Contents
+          {view === 'case' ? `Shelf · ${shelved.length}` : 'Contents'}
         </span>
         {status === 'paginating' ? (
           <span className="tabular text-[10px] text-brass-500">
@@ -89,6 +103,48 @@ export function Navigator() {
         ) : null}
       </div>
 
+      {/*
+        У стеллажа список — это сама полка: те же тома, тот же порядок, те же
+        цвета. Панель и сцена показывают одно и то же двумя способами, и щелчок
+        в списке делает ровно то же, что щелчок по корешку.
+      */}
+      {view === 'case' ? (
+        <nav className="flex-1 overflow-y-auto py-1" onPointerLeave={() => hover(null)}>
+          {shelved.map((volume) => {
+            const extent = volumeExtent(volume, metrics, typeKey);
+            const active = volume.id === hovered || volume.id === armed;
+            return (
+              <button
+                key={volume.id}
+                type="button"
+                onPointerEnter={() => hover(volume.id)}
+                onClick={() => take(volume.id)}
+                className={`flex w-full items-center gap-2 py-[5px] pl-3 pr-3 text-left transition-colors ${
+                  active ? 'bg-ink-800' : 'hover:bg-ink-850'
+                }`}
+              >
+                <span
+                  className="h-[18px] w-[3px] shrink-0 rounded-sm"
+                  style={{ backgroundColor: volume.palette.cloth }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[11.5px] text-ash-100" title={volume.title}>
+                    {volume.title}
+                  </span>
+                  <span className="block truncate text-[10px] text-ash-400">{volume.author}</span>
+                </span>
+                <span
+                  className="tabular shrink-0 text-[10.5px] text-ash-400"
+                  title={extent.exact ? 'Composed' : 'Estimated from the character count'}
+                >
+                  {extent.exact ? '' : '~'}
+                  {extent.pages}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      ) : (
       <nav className="flex-1 overflow-y-auto py-1">
         {pagination ? (
           pagination.chapters.map((chapter) => {
@@ -125,6 +181,7 @@ export function Navigator() {
           </p>
         )}
       </nav>
+      )}
     </aside>
   );
 }

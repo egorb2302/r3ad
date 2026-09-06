@@ -38,6 +38,9 @@ interface ManifestItem {
 
 const XHTML = /xhtml|html/;
 
+/** Расширения картинок — на случай, если media-type в манифесте не проставлен. */
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|svg)$/i;
+
 function parseXml(source: string, what: string): Document {
   const doc = new DOMParser().parseFromString(source, 'application/xml');
   if (doc.querySelector('parsererror')) throw new Error(`${what} is not valid XML`);
@@ -244,6 +247,7 @@ export async function readEpub(
   }
 
   const stats = docStats(chapters);
+  const cover = await readCover(archive, manifest, opf);
 
   return {
     id: `epub-${Date.now().toString(36)}`,
@@ -253,6 +257,7 @@ export async function readEpub(
     language,
     chapters,
     toc,
+    cover,
     charCount: stats.charCount,
     imageCount: stats.imageCount,
     imageBytes,
@@ -260,6 +265,57 @@ export async function readEpub(
     warnings,
     tookMs: performance.now() - started,
   };
+}
+
+/** Сторона уменьшенной обложки. Она нужна только под цвет корешка, не под показ. */
+const COVER_PX = 320;
+
+/**
+ * Обложка издания.
+ *
+ * Ищется тремя способами подряд, потому что за две версии формата их накопилось
+ * ровно три: свойство `cover-image` в манифесте (EPUB 3), `<meta name="cover">`
+ * со ссылкой на элемент манифеста (EPUB 2) и — если издатель не сделал ни того,
+ * ни другого — первая картинка, у которой в имени есть слово cover. Последний
+ * путь угадывает, поэтому идёт последним.
+ *
+ * Неудача здесь ничего не ломает: корешок тогда получит цвет по названию.
+ */
+async function readCover(
+  archive: Archive,
+  manifest: Map<string, ManifestItem>,
+  opf: Document,
+): Promise<string | undefined> {
+  const items = [...manifest.values()];
+  const isImage = (item: ManifestItem) => /^image\//.test(item.mime) || IMAGE_EXT.test(item.path);
+
+  let item = items.find((i) => i.properties.split(/\s+/).includes('cover-image'));
+
+  if (!item) {
+    const meta = tags(opf, 'meta').find((m) => m.getAttribute('name') === 'cover');
+    const id = meta?.getAttribute('content');
+    const named = id ? manifest.get(id) : undefined;
+    if (named && isImage(named)) item = named;
+  }
+
+  if (!item) item = items.find((i) => isImage(i) && /cover/i.test(i.path));
+  if (!item) return undefined;
+
+  const found = archive.find(item.path);
+  if (!found) return undefined;
+
+  try {
+    const bytes = await found.entry.async('uint8array');
+    const encoded = await encodeImage(bytes, mimeFor(item.path, item.mime), {
+      maxPx: COVER_PX,
+      // Пережимаем всегда: у обложки в архиве бывает и три мегабайта, а нужен
+      // из неё один цвет.
+      keepBytes: 0,
+    });
+    return encoded?.url;
+  } catch {
+    return undefined;
+  }
 }
 
 interface LoadedImage extends ImageAsset {

@@ -76,13 +76,13 @@ export async function openFile(file: File, onProgress?: IngestProgress): Promise
  * конвейер, что и загруженный EPUB. Разойдись эти два пути — расхождение
  * вылезло бы там, где его труднее всего искать.
  */
-export function syntheticDoc(options: SyntheticOptions = {}): ContentDoc {
+export function syntheticDoc(options: SyntheticOptions = {}, id = 'synthetic'): ContentDoc {
   const started = performance.now();
   const book = generateBook(options);
   const stats = docStats(book.chapters);
 
   return {
-    id: 'synthetic',
+    id,
     format: 'synthetic',
     title: book.title,
     author: book.author,

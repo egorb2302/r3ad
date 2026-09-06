@@ -60,10 +60,21 @@ export function paginationKey(
   m: PageMetrics,
   t: Typography,
 ): string {
+  return hash([ENGINE_VERSION, contentHash, typographyKey(m, t)].join('|'));
+}
+
+/**
+ * Ключ одного только набора, без содержимого.
+ *
+ * Нужен библиотеке. У тома на полке толщина посчитана при каком-то наборе, и
+ * узнать, устарела она или нет, можно лишь сравнив наборы, — а `paginationKey`
+ * для этого не годится: в нём есть содержимое, и у двух разных книг он разный
+ * всегда, даже если набраны они одинаково.
+ */
+export function typographyKey(m: PageMetrics, t: Typography): string {
   return hash(
     [
       ENGINE_VERSION,
-      contentHash,
       m.boxWidthPx,
       m.boxHeightPx,
       m.fontSizePx.toFixed(3),

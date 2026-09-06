@@ -32,7 +32,21 @@ import { Book } from './Book';
 import { Leaf } from './Leaf';
 import { COVER_H, COVER_T, COVER_W, GUTTER, TRIM_W } from './geometry';
 import { MAX_SPEED, motion, planTurn, releaseTarget, resetMotion, type TurnPlan } from './turn';
+import { flight } from './flight';
+import { Bookcase } from './bookcase/Bookcase';
+import { Spines } from './bookcase/Spines';
+import { FlyingVolume } from './bookcase/FlyingVolume';
+import { CASE, VOLUME_HEIGHT } from './bookcase/caseGeometry';
+import { SPINE_CAPACITY } from './bookcase/spineInstances';
+import { CameraRig } from './camera/CameraRig';
+import { DevHandle } from './DevHandle';
+import { layoutShelves } from '@/core/library/shelfLayout';
+import { paletteFor } from '@/core/library/palette';
+import { volumeExtent } from '@/core/library/volume';
+import { typographyKey } from '@/core/paginate/paginate';
+import { mm } from '@/core/units';
 import { useBook } from '@/store/useBook';
+import { useLibrary } from '@/store/useLibrary';
 import { usePageTextures } from './usePageTextures';
 
 /** Ближе этого к корешку хват за страницу не считается: рычага там нет. */
@@ -47,15 +61,55 @@ function Desk() {
   );
 }
 
+/** Цвет книги, у которой ещё нет записи в библиотеке: между сменой тома и полётом. */
+const FALLBACK_PALETTE = paletteFor('r3ad');
+
 export function Viewport() {
   const pagination = useBook((s) => s.pagination);
+  const metrics = useBook((s) => s.metrics);
+  const typography = useBook((s) => s.typography);
   const currentSheet = useBook((s) => s.currentSheet);
   const turn = useBook((s) => s.turn);
   const turnRequest = useBook((s) => s.turnRequest);
   const setTurn = useBook((s) => s.setTurn);
   const endTurn = useBook((s) => s.endTurn);
 
+  const view = useLibrary((s) => s.view);
+  const volumes = useLibrary((s) => s.volumes);
+  const desk = useLibrary((s) => s.desk);
+  const hovered = useLibrary((s) => s.hovered);
+  const armed = useLibrary((s) => s.armed);
+  const flying = useLibrary((s) => s.flight);
+  const hover = useLibrary((s) => s.hover);
+  const select = useLibrary((s) => s.select);
+  const reorder = useLibrary((s) => s.reorder);
+  const arrived = useLibrary((s) => s.arrived);
+
   const pages = usePageTextures();
+
+  /*
+   * Расстановка — чистая функция от порядка книг и набора, поэтому считается
+   * здесь, а не в сторе: полке незачем знать, что где-то есть сцена, а сцене
+   * незачем хранить то, что выводится.
+   */
+  const typeKey = useMemo(() => typographyKey(metrics, typography), [metrics, typography]);
+  const byId = useMemo(() => new Map(volumes.map((v) => [v.id, v])), [volumes]);
+
+  const layout = useMemo(
+    () =>
+      layoutShelves(
+        volumes,
+        metrics,
+        typeKey,
+        { shelves: CASE.shelves, innerWidth: CASE.innerWidth, capacity: SPINE_CAPACITY },
+        VOLUME_HEIGHT,
+      ),
+    [metrics, typeKey, volumes],
+  );
+
+  const flyingVolume = flying ? byId.get(flying.id) ?? desk : null;
+  const flyingPlacement = flying ? layout.byId.get(flying.id) ?? null : null;
+  const palette = desk?.palette ?? flyingVolume?.palette ?? FALLBACK_PALETTE;
 
   const sheets = pagination?.sheetCount ?? 1;
   const pageCount = pagination?.pageCount ?? 0;
@@ -72,7 +126,7 @@ export function Viewport() {
    * воздухе, а неподвижные страницы это уже 2a−1 и 2a+2, потому что лист,
    * закрывавший правую, поднялся.
    */
-  const view = turn
+  const spread = turn
     ? {
         leftSheets: turn.a,
         rightSheets: Math.max(0, sheets - turn.a - 1),
@@ -94,7 +148,7 @@ export function Viewport() {
   useEffect(() => {
     const base = turn ? turn.a : currentSheet;
     return request(
-      [view.leftPage, view.rightPage, view.front, view.back],
+      [spread.leftPage, spread.rightPage, spread.front, spread.back],
       // Соседние развороты готовим в простое: листание не должно ждать растр.
       [page(2 * base + 1), page(2 * base + 2), page(2 * base - 2), page(2 * base - 3)],
     );
@@ -103,14 +157,16 @@ export function Viewport() {
     page,
     turn,
     currentSheet,
-    view.leftPage,
-    view.rightPage,
-    view.front,
-    view.back,
+    spread.leftPage,
+    spread.rightPage,
+    spread.front,
+    spread.back,
   ]);
 
   const startTurn = useCallback(
     (dir: 1 | -1, dragging: boolean): TurnPlan | null => {
+      // Пока книга закрывается и летит, листать нечего.
+      if (flight.active) return null;
       const state = useBook.getState();
       const plan = planTurn(state.currentSheet, state.pagination?.sheetCount ?? 1, dir);
       if (!plan) return null;
@@ -144,7 +200,11 @@ export function Viewport() {
       camera={{ position: [0, 42, 50], fov: 30, near: 0.5, far: 500 }}
     >
       <color attach="background" args={['#14100d']} />
-      <fog attach="fog" args={['#14100d', 90, 240]} />
+      {/*
+        Туман растянут до стеллажа: он стоит в двух метрах от стола, и прежняя
+        дальность в 240 съедала бы полку целиком, стоило камере отъехать.
+      */}
+      <fog attach="fog" args={['#14100d', 150, 520]} />
 
       <ambientLight intensity={0.5} color="#ffeedd" />
 
@@ -167,26 +227,54 @@ export function Viewport() {
       </Suspense>
 
       <Desk />
+      <Bookcase />
 
-      <Book
-        leftSheets={view.leftSheets}
-        rightSheets={view.rightSheets}
-        leftPage={pages.get(view.leftPage)}
-        rightPage={pages.get(view.rightPage)}
+      <Spines
+        volumes={byId}
+        placements={layout.order}
+        hovered={hovered}
+        armed={armed}
+        hidden={flying?.id ?? null}
+        onHover={hover}
+        onSelect={select}
+        onReorder={reorder}
       />
+
+      {flying && flyingVolume && flyingPlacement ? (
+        <FlyingVolume
+          key={flying.id}
+          volume={flyingVolume}
+          thickness={mm(volumeExtent(flyingVolume, metrics, typeKey).thicknessMm)}
+          placement={flyingPlacement}
+          onArrived={arrived}
+        />
+      ) : null}
+
+      {/* Пустой стол — это пустой стол: книга уехала на полку, и её тут нет */}
+      {desk || flying ? (
+        <Book
+          leftSheets={spread.leftSheets}
+          rightSheets={spread.rightSheets}
+          leftPage={pages.get(spread.leftPage)}
+          rightPage={pages.get(spread.rightPage)}
+          palette={palette}
+        />
+      ) : null}
 
       {turn ? (
         <Leaf
           key={`${turn.a}-${turn.from}`}
-          front={pages.get(view.front)}
-          back={pages.get(view.back)}
-          leftSheets={view.leftSheets}
-          rightSheets={view.rightSheets}
+          front={pages.get(spread.front)}
+          back={pages.get(spread.back)}
+          leftSheets={spread.leftSheets}
+          rightSheets={spread.rightSheets}
           onSettled={onSettled}
         />
       ) : null}
 
       <TurnInput onStart={startTurn} />
+      <CameraRig view={view} />
+      <DevHandle />
 
       <ContactShadows
         position={[0, 0.003, 0]}
@@ -198,12 +286,10 @@ export function Viewport() {
         color="#000000"
       />
 
+      {/* Пределы приближения и цель ведёт CameraRig: у стола и у полки они разные */}
       <OrbitControls
         makeDefault
-        target={[0, 1.2, 0]}
         enablePan={false}
-        minDistance={26}
-        maxDistance={150}
         minPolarAngle={0.12}
         maxPolarAngle={Math.PI / 2.2}
         enableDamping

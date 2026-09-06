@@ -7,7 +7,11 @@
  * вместе с толщиной модели, поэтому цифры и геометрия видны одним взглядом.
  */
 import { useBook } from '@/store/useBook';
+import { useLibrary } from '@/store/useLibrary';
 import { linesPerPage } from '@/core/typography';
+import { charsPerPage } from '@/core/library/volume';
+import { CASE } from '@/scene/bookcase/caseGeometry';
+import { SPINE_CAPACITY } from '@/scene/bookcase/spineInstances';
 import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
 
 /**
@@ -38,6 +42,9 @@ export function Inspector() {
   const probe = useBook((s) => s.probe);
   const setTypography = useBook((s) => s.setTypography);
   const setProfile = useBook((s) => s.setProfile);
+
+  const shelved = useLibrary((s) => s.volumes);
+  const desk = useLibrary((s) => s.desk);
 
   const margins = typography.margins;
 
@@ -197,6 +204,25 @@ export function Inspector() {
           hint="Size of the text block in texture pixels"
         />
         <Stat label="Composition" value={pagination ? `${Math.round(pagination.tookMs)} ms` : '—'} />
+      </Panel>
+
+      <Panel title="Shelf">
+        <Stat label="On the shelf" value={`${shelved.length} of ${SPINE_CAPACITY}`} />
+        <Stat
+          label="Shelves"
+          value={CASE.shelves}
+          hint={`${CASE.innerWidth} cm each — the row wraps to the next one when it fills up`}
+        />
+        <Stat
+          label="On the desk"
+          value={desk ? desk.title : '—'}
+          hint="The open book is not on the shelf: it is here"
+        />
+        <Stat
+          label="Estimate"
+          value={`${charsPerPage(metrics)} chars / page`}
+          hint="How thick an unread volume is guessed to be until it is actually composed"
+        />
       </Panel>
 
       <Panel title="Rasterization">

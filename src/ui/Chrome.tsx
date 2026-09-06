@@ -2,6 +2,7 @@
 
 /** Верхняя строка и нижний тулбар вьюпорта. */
 import { useBook } from '@/store/useBook';
+import { useLibrary } from '@/store/useLibrary';
 import { spreadPages } from '@/scene/usePageTextures';
 
 export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () => void; panelsHidden: boolean }) {
@@ -10,17 +11,37 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
   const status = useBook((s) => s.status);
   const currentSheet = useBook((s) => s.currentSheet);
 
+  const view = useLibrary((s) => s.view);
+  const setView = useLibrary((s) => s.setView);
+  const desk = useLibrary((s) => s.desk);
+  const flight = useLibrary((s) => s.flight);
+  const shelve = useLibrary((s) => s.shelve);
+
   const { right } = spreadPages(currentSheet, pagination?.pageCount ?? 0);
+  const atDesk = view === 'desk';
 
   return (
     <header className="flex h-9 shrink-0 items-center justify-between border-b border-ink-800 bg-ink-900 px-3">
       <div className="flex items-center gap-2 text-[11.5px]">
         <span className="font-medium tracking-tight text-brass-500">r3ad</span>
         <span className="text-ink-600">/</span>
-        <span className="text-ash-400">Desk</span>
-        <span className="text-ink-600">/</span>
-        <span className="max-w-[280px] truncate text-ash-100">{doc.title}</span>
-        {right !== null ? (
+        <button
+          type="button"
+          onClick={() => setView(atDesk ? 'case' : 'desk')}
+          title={atDesk ? 'Look at the bookcase (Esc)' : 'Back to the desk (Esc)'}
+          className="rounded px-1 text-ash-400 transition-colors hover:bg-ink-800 hover:text-ash-100"
+        >
+          {atDesk ? 'Desk' : 'Bookcase'}
+        </button>
+        {atDesk ? (
+          <>
+            <span className="text-ink-600">/</span>
+            <span className="max-w-[280px] truncate text-ash-100">
+              {desk ? doc.title : 'empty'}
+            </span>
+          </>
+        ) : null}
+        {atDesk && desk && right !== null ? (
           <>
             <span className="text-ink-600">/</span>
             <span className="tabular text-ash-400">p. {right + 1}</span>
@@ -29,6 +50,16 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
       </div>
 
       <div className="flex items-center gap-3">
+        {desk && !flight ? (
+          <button
+            type="button"
+            onClick={shelve}
+            title="Close the book and send it to the shelf (S)"
+            className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
+          >
+            shelve
+          </button>
+        ) : null}
         <span
           className={`tabular text-[10.5px] ${
             status === 'paginating' ? 'text-brass-500' : 'text-ash-400'

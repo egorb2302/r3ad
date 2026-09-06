@@ -152,7 +152,7 @@ async function epub3() {
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="css" href="styles/book.css" media-type="text/css"/>
-    <item id="plate" href="images/plate.png" media-type="image/png"/>
+    <item id="plate" href="images/plate.png" media-type="image/png" properties="cover-image"/>
     <item id="mark" href="images/mark.png" media-type="image/png"/>
     <item id="cover" href="text/cover.xhtml" media-type="application/xhtml+xml"/>
     <item id="c1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
@@ -183,6 +183,7 @@ async function epub2() {
       <rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles>
     </container>`);
 
+  zip.file('Images/front.png', png(600, 900));
   zip.file('Text/one.html', chapterHtml('Part One', 55));
   zip.file('Text/two.html', chapterHtml('Part Two', 66));
   zip.file('Text/three.html', chapterHtml('Part Three', 77));
@@ -205,9 +206,12 @@ async function epub2() {
     <dc:title>Signature</dc:title>
     <dc:creator opf:role="aut">B. Binder</dc:creator>
     <dc:language>en</dc:language>
+    <!-- EPUB 2 объявляет обложку так: метатегом со ссылкой на элемент манифеста -->
+    <meta name="cover" content="front"/>
   </metadata>
   <manifest>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="front" href="Images/front.png" media-type="image/png"/>
     <item id="one" href="Text/one.html" media-type="application/xhtml+xml"/>
     <item id="two" href="Text/two.html" media-type="application/xhtml+xml"/>
     <item id="three" href="Text/three.html" media-type="application/xhtml+xml"/>

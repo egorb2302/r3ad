@@ -13,6 +13,7 @@ import { Navigator } from './Navigator';
 import { Inspector } from './Inspector';
 import { Topbar, Toolbar } from './Chrome';
 import { useBook } from '@/store/useBook';
+import { useLibrary } from '@/store/useLibrary';
 import { ensureDocumentFonts, fontCssForText } from '@/core/rasterize/fonts';
 import { probeRasterizer } from '@/core/rasterize/svgRasterizer';
 
@@ -35,6 +36,10 @@ export function Workspace() {
   const progress = useBook((s) => s.progress);
   const requestTurn = useBook((s) => s.requestTurn);
   const open = useBook((s) => s.open);
+
+  const view = useLibrary((s) => s.view);
+  const setView = useLibrary((s) => s.setView);
+  const shelve = useLibrary((s) => s.shelve);
 
   useEffect(() => {
     let alive = true;
@@ -65,14 +70,19 @@ export function Workspace() {
   const onKey = useCallback(
     (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown') requestTurn(1);
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') requestTurn(-1);
+      // Escape ходит между столом и стеллажом: это одна сцена, а не два экрана.
+      if (e.key === 'Escape') setView(view === 'desk' ? 'case' : 'desk');
+      else if (e.key === 's' || e.key === 'S') shelve();
       else if (e.key === '\\' && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         setPanelsHidden((v) => !v);
       }
+      // Листание — только когда книга перед глазами.
+      else if (view !== 'desk') return;
+      else if (e.key === 'ArrowRight' || e.key === 'PageDown') requestTurn(1);
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') requestTurn(-1);
     },
-    [requestTurn],
+    [requestTurn, setView, shelve, view],
   );
 
   useEffect(() => {
@@ -126,7 +136,7 @@ export function Workspace() {
         <main className="relative min-w-0 flex-1">
           {boot === 'ready' ? <Viewport /> : <div className="h-full w-full bg-ink-950" />}
 
-          {!panelsHidden && <Toolbar />}
+          {!panelsHidden && view === 'desk' && <Toolbar />}
 
           {(boot !== 'ready' || status === 'reading' || status === 'paginating' || status === 'error') && (
             <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">

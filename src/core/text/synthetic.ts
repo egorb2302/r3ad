@@ -95,6 +95,50 @@ function paragraph(r: () => number): string {
   return `<p>${body}</p>`;
 }
 
+/**
+ * Знаков текста в среднем абзаце этого генератора.
+ *
+ * Замерено на выдаче, а не выведено из констант: длина предложения складывается
+ * из четырёх вероятностных ветвей, и аналитическая оценка разошлась бы ровно
+ * там, где это дороже всего, — на объёме тома.
+ */
+export const CHARS_PER_PARAGRAPH = 447;
+
+/** Что глава добавляет сверх абзацев: заголовок, иногда эпиграф и подзаголовки. */
+const CHARS_PER_CHAPTER = 120;
+
+/**
+ * Знаков в главе. Пятнадцать-двадцать страниц — обычная для романа величина;
+ * по ней из объёма книги выводится число глав, а не наоборот.
+ */
+const CHAPTER_TARGET = 30_000;
+
+/**
+ * Настройки генератора под заданный объём.
+ *
+ * Библиотеке нужен обратный ход: не «сколько знаков даст эта книга», а «какую
+ * книгу написать, чтобы вышло столько знаков». Полка задаёт тома в страницах,
+ * и без этой функции их объём приходилось бы подбирать вручную.
+ */
+export function optionsForExtent(
+  charCount: number,
+  meta: { seed: number; title: string; author: string },
+): SyntheticOptions {
+  const chapters = Math.min(48, Math.max(3, Math.round(charCount / CHAPTER_TARGET)));
+  const paragraphsPerChapter = Math.max(
+    1,
+    Math.round((charCount / chapters - CHARS_PER_CHAPTER) / CHARS_PER_PARAGRAPH),
+  );
+
+  return {
+    seed: meta.seed,
+    chapters,
+    paragraphsPerChapter,
+    title: meta.title,
+    author: meta.author,
+  };
+}
+
 export interface SyntheticBook {
   title: string;
   author: string;

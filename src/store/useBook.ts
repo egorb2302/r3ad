@@ -19,6 +19,7 @@ import {
 } from '@/core/typography';
 import { paginate, type PaginationResult } from '@/core/paginate/paginate';
 import type { TurnPlan } from '@/scene/turn';
+import type { VolumeRecord, VolumeSource } from '@/core/library/volume';
 import type { RasterizerProbe } from '@/core/rasterize/svgRasterizer';
 
 export interface RenderStat {
@@ -33,6 +34,14 @@ type Status = 'idle' | 'reading' | 'paginating' | 'ready' | 'error';
 
 interface BookState {
   doc: ContentDoc;
+  /**
+   * Откуда взялся текущий документ.
+   *
+   * Нужен библиотеке: том, уехавший на полку, обязан уметь вернуться, а держать
+   * ради этого разобранный документ — держать распакованный архив на каждую
+   * книгу. Источник весит ноль.
+   */
+  docSource: VolumeSource;
   typography: Typography;
   profile: TextureProfile;
   metrics: PageMetrics;
@@ -71,6 +80,7 @@ interface BookState {
   endTurn: (target: number) => void;
   runPagination: (options?: { keepPosition?: boolean }) => void;
   open: (file: File) => Promise<void>;
+  openVolume: (volume: VolumeRecord) => Promise<void>;
   openSynthetic: () => void;
   setProbe: (probe: RasterizerProbe) => void;
   noteRender: (stat: RenderStat) => void;
@@ -85,6 +95,7 @@ let runToken = 0;
 
 export const useBook = create<BookState>((set, get) => ({
   doc: initialDoc,
+  docSource: { kind: 'synthetic', options: {} },
   typography: DEFAULT_TYPOGRAPHY,
   profile: 'desktop',
   metrics: computeMetrics(DEFAULT_TYPOGRAPHY, 'desktop'),
@@ -231,6 +242,7 @@ export const useBook = create<BookState>((set, get) => ({
 
       set({
         doc,
+        docSource: { kind: 'file', file },
         typography,
         metrics: computeMetrics(typography, get().profile),
         currentSheet: 0,
@@ -248,11 +260,65 @@ export const useBook = create<BookState>((set, get) => ({
     }
   },
 
+  /**
+   * Открыть том, снятый с полки.
+   *
+   * Содержимое добывается из источника записи: синтетика генерируется заново по
+   * тем же настройкам, файл разбирается повторно. Разбор укладывается в полёт
+   * книги, поэтому ждать читателю нечего, а памяти это не стоит вовсе — на
+   * полке лежали метаданные, а не сорок распакованных архивов.
+   */
+  openVolume: async (volume) => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    controller?.abort();
+    runToken++;
+
+    set({
+      status: 'reading',
+      stage: `opening ${volume.title}`,
+      error: null,
+      progress: { done: 0, total: 0 },
+    });
+
+    try {
+      const doc =
+        volume.source.kind === 'synthetic'
+          ? syntheticDoc(volume.source.options, volume.id)
+          : {
+              ...(await openFile(volume.source.file, (done, total) =>
+                set({ progress: { done, total } }),
+              )),
+              // Личность тома задаёт библиотека, а не разбор: по этому
+              // идентификатору книга находит свой корешок.
+              id: volume.id,
+            };
+
+      const typography = { ...get().typography, lang: doc.language || 'en' };
+      set({
+        doc,
+        docSource: volume.source,
+        typography,
+        metrics: computeMetrics(typography, get().profile),
+        currentSheet: 0,
+        turn: null,
+        pagination: null,
+      });
+      get().runPagination({ keepPosition: false });
+    } catch (err) {
+      set({
+        status: 'error',
+        stage: '',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  },
+
   openSynthetic: () => {
     const doc = syntheticDoc();
     const typography = { ...get().typography, lang: 'en' };
     set({
       doc,
+      docSource: { kind: 'synthetic', options: {} },
       typography,
       metrics: computeMetrics(typography, get().profile),
       currentSheet: 0,
