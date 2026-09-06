@@ -29,6 +29,11 @@ export type PaletteMode = 'commands' | 'search';
 interface ShellState {
   mode: ShellMode;
   reason: ModeReason;
+  /**
+   * Панели выдвинуты. По умолчанию нет: сцена — это то, ради чего проект
+   * есть, и первым делом на экране должна быть книга, а не два столбца
+   * настроек по бокам от неё. Настройки приезжают по кнопке и лежат поверх.
+   */
   panels: boolean;
   palette: PaletteMode | null;
   device: DeviceProfile;
@@ -74,7 +79,7 @@ function writeMode(mode: ShellMode) {
 export const useShell = create<ShellState>((set, get) => ({
   mode: 'scene',
   reason: 'user',
-  panels: true,
+  panels: false,
   palette: null,
   device: DEFAULT_PROFILE,
   reduced: false,
@@ -113,12 +118,12 @@ export const useShell = create<ShellState>((set, get) => ({
     if (same) return;
 
     /*
-     * Панели на узком экране закрыты, на широком открыты — и переключается это
-     * ровно в момент, когда экран сменил класс. Оставить их открытыми при
-     * переходе в узкий значило бы закрыть книгу ящиком; закрывать их при каждом
-     * замере — отнимать у человека то, что он только что открыл.
+     * Смена класса экрана закрывает панели: на узком они лежат одним ящиком,
+     * на широком — двумя по бокам, и открытое в одной раскладке в другой
+     * стоит не там. Закрывать их при каждом замере — отнимать у человека то,
+     * что он только что открыл, поэтому только в момент смены класса.
      */
-    const panels = known.compact === device.compact ? get().panels : !device.compact;
+    const panels = known.compact === device.compact ? get().panels : false;
     set({ device, panels });
 
     // Сцены нет — спорить не о чем: показываем то, что показать можем.

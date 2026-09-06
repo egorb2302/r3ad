@@ -36,10 +36,24 @@ const TIMBER: Record<WoodSpecies, Timber> = {
   ebony: { ground: '#2c2724', dark: [12, 10, 9], light: [86, 78, 68], contrast: 0.55 },
 };
 
-const cached = new Map<WoodSpecies, THREE.CanvasTexture>();
+const cached = new Map<string, THREE.CanvasTexture>();
 
-function draw(species: WoodSpecies): HTMLCanvasElement {
-  const timber = TIMBER[species];
+/**
+ * Мягкая отделка: та же порода, но светлее и с приглушённым волокном.
+ *
+ * Для столешницы. Доска стеллажа стоит в двух метрах и ей нужен рисунок,
+ * чтобы читаться деревом; столешница занимает половину кадра прямо под
+ * книгой, и контрастное волокно на ней спорит с текстом. Светлый лак с
+ * едва заметным рисунком — то, как выглядит стол, за которым читают, а не
+ * доска, из которой он сделан.
+ */
+function soften(timber: Timber): Timber {
+  const ground = new THREE.Color(timber.ground).lerp(new THREE.Color('#fff4e6'), 0.42);
+  return { ...timber, ground: `#${ground.getHexString()}`, contrast: timber.contrast * 0.42 };
+}
+
+function draw(species: WoodSpecies, soft: boolean): HTMLCanvasElement {
+  const timber = soft ? soften(TIMBER[species]) : TIMBER[species];
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;
@@ -91,16 +105,17 @@ function draw(species: WoodSpecies): HTMLCanvasElement {
   return canvas;
 }
 
-function base(species: WoodSpecies): THREE.CanvasTexture {
-  const known = cached.get(species);
+function base(species: WoodSpecies, soft: boolean): THREE.CanvasTexture {
+  const key = soft ? `${species}/soft` : species;
+  const known = cached.get(key);
   if (known) return known;
 
-  const texture = new THREE.CanvasTexture(draw(species));
+  const texture = new THREE.CanvasTexture(draw(species, soft));
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
-  cached.set(species, texture);
+  cached.set(key, texture);
   return texture;
 }
 
@@ -114,8 +129,9 @@ export function woodTexture(
   repeatX: number,
   repeatY: number,
   species: WoodSpecies,
+  soft = false,
 ): THREE.Texture {
-  const texture = base(species).clone();
+  const texture = base(species, soft).clone();
   texture.needsUpdate = true;
   texture.repeat.set(repeatX, repeatY);
   return texture;

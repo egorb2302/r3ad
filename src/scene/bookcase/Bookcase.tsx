@@ -10,11 +10,20 @@
  * Полки строятся циклом от числа полок, а не расставлены руками: число полок и
  * их шаг заявлены настройкой (SPEC §8), и разойдись здесь арифметика с той, по
  * которой считается расстановка, книги встали бы сквозь доски.
+ *
+ * Кромки досок скруглены. Не ради «мягкости» самой по себе: острый край
+ * коробки ловит свет одной линией в один пиксель, и на нём в любом ракурсе
+ * видно, что это коробка. Скругление в четыре миллиметра даёт кромке блик
+ * шириной в несколько пикселей — так выглядит доска с фаской, а не примитив.
  */
 import { useEffect, useMemo } from 'react';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { WoodSpecies } from '@/core/theme';
 import { woodTexture } from './wood';
-import { CASE, CASE_HEIGHT, CASE_WIDTH, CASE_Z } from './caseGeometry';
+import { CASE, CASE_HEIGHT, CASE_WIDTH, CASE_X, CASE_Y, CASE_Z } from './caseGeometry';
+
+/** Радиус фаски на кромках. */
+const EDGE = 0.4;
 
 export function Bookcase({ species }: { species: WoodSpecies }) {
   const maps = useMemo(
@@ -35,17 +44,33 @@ export function Bookcase({ species }: { species: WoodSpecies }) {
     for (const map of Object.values(maps)) map.dispose();
   }, [maps]);
 
+  /*
+   * Геометрии со скруглёнными кромками не объявляются разметкой: у R3F нет
+   * готового тега на класс из examples. Две штуки на весь стеллаж — боковина
+   * и доска, — и живут они столько же, сколько сам стеллаж.
+   */
+  const shapes = useMemo(
+    () => ({
+      side: new RoundedBoxGeometry(CASE.board, CASE_HEIGHT, CASE.depth, 2, EDGE),
+      board: new RoundedBoxGeometry(CASE.innerWidth + EDGE, CASE.board, CASE.depth, 2, EDGE),
+      plinth: new RoundedBoxGeometry(CASE_WIDTH, CASE.board / 2, 2, 2, EDGE),
+    }),
+    [],
+  );
+  useEffect(() => () => {
+    for (const shape of Object.values(shapes)) shape.dispose();
+  }, [shapes]);
+
   const { boardMap, sideMap, backMap } = maps;
 
   const sideX = CASE.innerWidth / 2 + CASE.board / 2;
 
   return (
-    <group position={[0, 0, CASE_Z]}>
+    <group position={[CASE_X, CASE_Y, CASE_Z]}>
       {/* Боковины во всю высоту: полки опираются на них, а не наоборот */}
       {[-sideX, sideX].map((x) => (
-        <mesh key={x} position={[x, CASE_HEIGHT / 2, 0]} castShadow receiveShadow>
-          <boxGeometry args={[CASE.board, CASE_HEIGHT, CASE.depth]} />
-          <meshStandardMaterial map={sideMap} roughness={0.84} metalness={0} />
+        <mesh key={x} position={[x, CASE_HEIGHT / 2, 0]} geometry={shapes.side} castShadow receiveShadow>
+          <meshStandardMaterial map={sideMap} roughness={0.8} metalness={0} />
         </mesh>
       ))}
 
@@ -54,10 +79,10 @@ export function Bookcase({ species }: { species: WoodSpecies }) {
         <mesh
           key={i}
           position={[0, i * (CASE.clearance + CASE.board) + CASE.board / 2, 0]}
+          geometry={shapes.board}
           receiveShadow
         >
-          <boxGeometry args={[CASE.innerWidth, CASE.board, CASE.depth]} />
-          <meshStandardMaterial map={boardMap} roughness={0.86} metalness={0} />
+          <meshStandardMaterial map={boardMap} roughness={0.82} metalness={0} />
         </mesh>
       ))}
 
@@ -80,8 +105,7 @@ export function Bookcase({ species }: { species: WoodSpecies }) {
       </mesh>
 
       {/* Цоколь: стеллаж не висит в воздухе */}
-      <mesh position={[0, CASE.board / 4, CASE.depth / 2 - 1]}>
-        <boxGeometry args={[CASE_WIDTH, CASE.board / 2, 2]} />
+      <mesh position={[0, CASE.board / 4, CASE.depth / 2 - 1]} geometry={shapes.plinth}>
         <meshStandardMaterial map={boardMap} color="#c9c9c9" roughness={0.9} />
       </mesh>
     </group>

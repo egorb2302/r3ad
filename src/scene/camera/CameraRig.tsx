@@ -20,7 +20,7 @@
 import { useEffect, useRef } from 'react';
 import { useFrame, useStore } from '@react-three/fiber';
 import * as THREE from 'three';
-import { CASE_HEIGHT, CASE_WIDTH, CASE_Z } from '../bookcase/caseGeometry';
+import { CASE_HEIGHT, CASE_WIDTH, CASE_X, CASE_Y, CASE_Z } from '../bookcase/caseGeometry';
 import { COVER_H, COVER_W, GUTTER, TRIM_H, TRIM_W } from '../geometry';
 import { easeInOutCubic } from '../flight';
 import { flightFocus, flightPosition } from '../route';
@@ -82,8 +82,10 @@ const SPREAD_WIDTH = 2 * (GUTTER + COVER_W);
 
 /** Ракурс стола: куда смотрим, откуда и с какого расстояния на широком экране. */
 const DESK_TARGET = new THREE.Vector3(0, 1.2, 0);
-const DESK_DIRECTION = new THREE.Vector3(0, 40.8, 50).normalize();
+const DESK_DIRECTION = new THREE.Vector3(0, 31.2, 50).normalize();
 const DESK_DISTANCE = 64.6;
+/** Высота глаз стоящего человека, в координатах сцены: 60 см над столом. */
+const CASE_EYE = 60;
 /** Верх страницы в плоском режиме: от читателя. */
 const PAGE_UP = new THREE.Vector3(0, 0, -1);
 
@@ -106,11 +108,17 @@ function shotFor(view: CameraView, flat: FlatFocus | null, fov: number, aspect: 
     };
   }
 
+  /*
+   * Полка. Стеллаж стоит на полу рядом со столом, и с высоты сидящего его
+   * нижние ряды ушли бы под край кадра. Поэтому на стеллаж смотрят стоя:
+   * камера поднята на высоту глаз человека, вставшего из-за стола. Цель —
+   * середина стеллажа, наклон получается сам.
+   */
   if (view === 'case') {
     const distance = fitDistance(CASE_WIDTH, CASE_HEIGHT, fov, aspect, MARGIN);
     return {
-      position: new THREE.Vector3(0, CASE_HEIGHT / 2 + 4, CASE_Z + distance),
-      target: new THREE.Vector3(0, CASE_HEIGHT / 2, CASE_Z),
+      position: new THREE.Vector3(CASE_X, CASE_EYE, CASE_Z + distance),
+      target: new THREE.Vector3(CASE_X, CASE_Y + CASE_HEIGHT / 2, CASE_Z),
       up: UP,
       free: true,
       minDistance: 40,

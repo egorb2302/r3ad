@@ -10,6 +10,10 @@
  * источник и провал в чёрное вокруг; студия — ровный нейтральный свет, при
  * котором виден материал, а не настроение.
  *
+ * С комнатой (scene/room) пресет описывает и её: краску стен, пол, ковёр и
+ * свет в окне. Это не отдельная настройка — вечер в комнате с мятными стенами
+ * не вечер, — поэтому палитра комнаты лежит здесь же, рядом с источниками.
+ *
  * Два решения, которые здесь важно не «починить» обратно.
  *
  * **Ключ стоит слева-сверху во всех пресетах.** Тиснение на крышке и корешке
@@ -20,6 +24,11 @@
  * **Экспозиция и яркость источников разведены.** Пресет задаёт светотень,
  * ползунок — общий уровень. Иначе «сделать посветлее» означало бы выжечь блики
  * и получить плоскую картинку вместо той же сцены при другой выдержке.
+ *
+ * Полусферический источник появился вместе с комнатой. Ровный ambient красит
+ * тень и свет одним цветом, и скруглённая вещь на нём выглядит плоской: у
+ * шара нет ни верха, ни низа. Полусфера даёт небу и полу два разных тона, и
+ * округлость читается сама — это то, на чём держится мягкий вид всей комнаты.
  *
  * Карт теней по-прежнему нет (см. Viewport): единственные нужные тени —
  * контактная под книгой и от поднятого листа, и обе дешевле рисуются иначе.
@@ -41,25 +50,39 @@ interface Former extends Source {
   form?: 'circle' | 'ring' | 'rect';
 }
 
+/** Чем покрашена комната при этом свете. */
+export interface RoomPalette {
+  wall: string;
+  floor: string;
+  rug: string;
+  /** Плинтус, оконная рама, полочка, рамка картины: всё «белое» в комнате. */
+  trim: string;
+  /** Свет в окне и в лампе. */
+  glow: string;
+}
+
 export interface LightRig {
-  /** Цвет фона и тумана: у сцены нет неба, поэтому он один. */
+  /** Цвет фона и тумана: то, во что уходят стены вдали. */
   background: string;
   fog: [near: number, far: number];
   ambient: { intensity: number; color: string };
+  hemisphere: { sky: string; ground: string; intensity: number };
   key: Source;
   fill: Source;
   formers: Former[];
   /** Своя экспозиция пресета. Ползунок темы её домножает. */
   exposure: number;
   shadow: { opacity: number; blur: number; color: string };
+  room: RoomPalette;
 }
 
 export const RIGS: Record<ScenePreset, LightRig> = {
   /** Настольная лампа: то, с чего сцена начиналась на M0. */
   lamp: {
-    background: '#14100d',
-    fog: [150, 520],
-    ambient: { intensity: 0.5, color: '#ffeedd' },
+    background: '#1a1410',
+    fog: [170, 560],
+    ambient: { intensity: 0.32, color: '#ffeedd' },
+    hemisphere: { sky: '#ffdcb4', ground: '#3d2a1e', intensity: 0.42 },
     key: { position: [-26, 40, 20], intensity: 2.1, color: '#ffd9a8' },
     fill: { position: [30, 24, -18], intensity: 0.45, color: '#8fb2d8' },
     formers: [
@@ -69,13 +92,15 @@ export const RIGS: Record<ScenePreset, LightRig> = {
     ],
     exposure: 1,
     shadow: { opacity: 1, blur: 2.4, color: '#000000' },
+    room: { wall: '#c9ad8f', floor: '#a4784f', rug: '#8a6b96', trim: '#efe4d3', glow: '#ffd9a4' },
   },
 
   /** День: свет из окна. Тени мягкие и почти без цвета, зато видно бумагу. */
   daylight: {
-    background: '#20262b',
-    fog: [200, 640],
-    ambient: { intensity: 0.9, color: '#dfe9f4' },
+    background: '#2a3138',
+    fog: [220, 700],
+    ambient: { intensity: 0.55, color: '#dfe9f4' },
+    hemisphere: { sky: '#e3efff', ground: '#6f6252', intensity: 0.7 },
     key: { position: [-20, 52, 32], intensity: 2.2, color: '#fff6e8' },
     fill: { position: [34, 30, -10], intensity: 0.9, color: '#cfe0f2' },
     formers: [
@@ -85,6 +110,7 @@ export const RIGS: Record<ScenePreset, LightRig> = {
     ],
     exposure: 1.05,
     shadow: { opacity: 0.62, blur: 3.4, color: '#1b2430' },
+    room: { wall: '#d9e2d6', floor: '#c4a47e', rug: '#9db8c8', trim: '#f7f6f1', glow: '#eef6ff' },
   },
 
   /**
@@ -95,9 +121,10 @@ export const RIGS: Record<ScenePreset, LightRig> = {
    * насквозь при выключенном свете, читалась бы декорацией.
    */
   evening: {
-    background: '#0c0908',
-    fog: [90, 400],
-    ambient: { intensity: 0.28, color: '#ffd2a4' },
+    background: '#0f0a08',
+    fog: [110, 440],
+    ambient: { intensity: 0.18, color: '#ffd2a4' },
+    hemisphere: { sky: '#ff9d66', ground: '#1c1210', intensity: 0.34 },
     key: { position: [-34, 26, 16], intensity: 2.8, color: '#ff9a4a' },
     fill: { position: [22, 18, -20], intensity: 0.22, color: '#4a6a94' },
     formers: [
@@ -107,13 +134,15 @@ export const RIGS: Record<ScenePreset, LightRig> = {
     ],
     exposure: 0.92,
     shadow: { opacity: 1.25, blur: 2, color: '#000000' },
+    room: { wall: '#8a6a60', floor: '#74513d', rug: '#6a4b66', trim: '#c9b5a2', glow: '#ff9a55' },
   },
 
   /** Студия: ровный нейтральный свет. Пресет для съёмки переплёта, а не настроения. */
   studio: {
-    background: '#191a1c',
-    fog: [240, 720],
-    ambient: { intensity: 0.7, color: '#ffffff' },
+    background: '#1c1d20',
+    fog: [260, 760],
+    ambient: { intensity: 0.45, color: '#ffffff' },
+    hemisphere: { sky: '#ffffff', ground: '#6e6e6e', intensity: 0.5 },
     key: { position: [-22, 46, 26], intensity: 2, color: '#ffffff' },
     fill: { position: [28, 26, -14], intensity: 1.1, color: '#f2f4f8' },
     formers: [
@@ -123,6 +152,7 @@ export const RIGS: Record<ScenePreset, LightRig> = {
     ],
     exposure: 1,
     shadow: { opacity: 0.8, blur: 1.6, color: '#000000' },
+    room: { wall: '#d5d5d3', floor: '#b6ada1', rug: '#a6a8b4', trim: '#f4f4f2', glow: '#ffffff' },
   },
 };
 
@@ -180,14 +210,19 @@ export function Lighting({ scene }: { scene: SceneTheme }) {
     <>
       <color attach="background" args={[rig.background]} />
       {/*
-        Туман растянут до стеллажа: он стоит в двух метрах от стола, и короткая
-        дальность съедала бы полку целиком, стоило камере отъехать.
+        Туман дотянут до стен: они стоят в полутора метрах за стеллажом, и
+        короткая дальность съедала бы их целиком, стоило камере отъехать.
       */}
       <fog attach="fog" args={[rig.background, rig.fog[0], rig.fog[1]]} />
 
       <Exposure value={rig.exposure * scene.exposure} />
 
       <ambientLight intensity={rig.ambient.intensity} color={rig.ambient.color} />
+      <hemisphereLight
+        color={rig.hemisphere.sky}
+        groundColor={rig.hemisphere.ground}
+        intensity={rig.hemisphere.intensity}
+      />
       {/* Ключ всегда слева-сверху: на этом держится рельеф тиснения. */}
       <directionalLight
         position={rig.key.position}

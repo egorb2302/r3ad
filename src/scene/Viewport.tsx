@@ -43,6 +43,7 @@ import { FlatProbe } from './journal/FlatProbe';
 import { useJournalTextures } from './journal/useJournalTextures';
 import { DevHandle } from './DevHandle';
 import { Lighting, shadowLook } from './lighting';
+import { Room } from './room/Room';
 import { layoutShelves } from '@/core/library/shelfLayout';
 import { themeFor } from '@/core/theme';
 import { volumeExtent } from '@/core/library/volume';
@@ -57,15 +58,6 @@ import { usePageTextures } from './usePageTextures';
 
 /** Ближе этого к корешку хват за страницу не считается: рычага там нет. */
 const MIN_GRIP = GUTTER + TRIM_W / 4;
-
-function Desk() {
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.001, 0]} receiveShadow>
-      <planeGeometry args={[300, 300]} />
-      <meshStandardMaterial color="#241e19" roughness={0.95} metalness={0} />
-    </mesh>
-  );
-}
 
 /** Внешность книги, у которой ещё нет записи в библиотеке: между сменой тома и полётом. */
 const FALLBACK_THEME = themeFor('r3ad');
@@ -279,14 +271,15 @@ export function Viewport() {
       dpr={dpr}
       frameloop={loop}
       gl={{ antialias: !slow }}
-      camera={{ position: [0, 42, 50], fov: 30, near: 0.5, far: 500 }}
+      camera={{ position: [0, 38, 53], fov: 30, near: 0.5, far: 600 }}
     >
       <Idle onSettled={() => setLoop('demand')} />
       <FrameGuard target={device.kind === 'phone' ? 26 : 48} onSlow={() => setSlow(true)} />
       {/* Свет, фон и туман — пресетом (см. scene/lighting). */}
       <Lighting scene={scene} />
 
-      <Desk />
+      {/* Стол, пол, стены и всё, что стоит вокруг книги (см. scene/room). */}
+      <Room scene={scene} />
       <Bookcase species={scene.wood} />
 
       <Spines

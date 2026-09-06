@@ -30,6 +30,7 @@ import * as THREE from 'three';
 import { paletteOf, PAPERS, type BookTheme } from '@/core/theme';
 import { coverGeometry, coverSurface } from './materials/cover';
 import { edgeSurface, edgeTextureFor } from './materials/edgeTexture';
+import { leafShadowTexture } from './materials/pageCurl';
 import { flight } from './flight';
 import { blankPage } from './blank';
 import {
@@ -41,6 +42,16 @@ import {
   TRIM_H,
   TRIM_W,
 } from './geometry';
+
+/**
+ * Ширина тени у корешка.
+ *
+ * Раскрытая книга не лежит плоско: у жёлоба страницы уходят вниз, и по обе
+ * стороны от корешка ложится мягкая тень. Без неё разворот читается двумя
+ * листами бумаги, положенными рядом. Рисуется той же градиентной картой, что
+ * тень поднятого листа, — это одна и та же тень, только неподвижная.
+ */
+const GUTTER_SHADE = 2.8;
 
 interface HalfProps {
   side: 'left' | 'right';
@@ -166,6 +177,23 @@ function Half({ side, sheets, texture, theme, title, author }: HalfProps) {
       <mesh position={[blockCenterX, pageY, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[TRIM_W, TRIM_H]} />
         <meshStandardMaterial map={texture ?? blankPage(theme.paper.tint)} roughness={0.94} />
+      </mesh>
+
+      {/* Тень у корешка: темнее к жёлобу, сходит на нет к полосе набора */}
+      <mesh
+        position={[dir * (GUTTER + GUTTER_SHADE / 2), pageY + 0.003, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        scale={[dir, 1, 1]}
+        renderOrder={1}
+      >
+        <planeGeometry args={[GUTTER_SHADE, TRIM_H]} />
+        <meshBasicMaterial
+          map={leafShadowTexture()}
+          color="#000000"
+          transparent
+          opacity={0.3}
+          depthWrite={false}
+        />
       </mesh>
 
       {side === 'right' && theme.ribbon ? (

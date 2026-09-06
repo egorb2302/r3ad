@@ -5,7 +5,7 @@ import { useEffect, useRef, type ReactNode } from 'react';
 
 export function Panel({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
-    <section className="border-b border-ink-800">
+    <section className="border-b border-ink-800 last:border-b-0">
       <header className="flex items-center justify-between px-3 py-2">
         <h2 className="text-[10px] font-medium uppercase tracking-[0.13em] text-ash-400">{title}</h2>
         {right}

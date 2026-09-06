@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Воркспейс со сценой: навигатор слева, вьюпорт в центре, инспектор справа.
+ * Воркспейс со сценой: вьюпорт во весь экран, панели выдвигаются поверх него.
  *
  * Всё, что не про 3D, — запуск, приём файлов, палитра, горячие клавиши общего
  * назначения — живёт этажом выше, в `Workspace`. Разделение появилось на M7
@@ -141,24 +141,35 @@ export function SceneWorkspace({ boot }: { boot: BootStage }) {
   }, [onKey]);
 
   /*
-   * На узком экране панели не стоят рядом со сценой, а лежат в одном выдвижном
-   * ящике поверх неё, навигатор над инспектором. Рядом они не помещаются: 236 и
-   * 262 пикселя на телефоне — это весь экран, и от вьюпорта остаётся полоса,
-   * то есть книги не видно ровно в том режиме, ради которого сцена есть.
+   * Панели лежат поверх сцены, а не рядом с ней, и по умолчанию убраны.
+   *
+   * Сцена — то, ради чего проект есть, и первым на экране должна быть книга,
+   * а не два столбца настроек по бокам. Кнопка в шапке выдвигает оба, и
+   * сцена под ними не перевёрстывается: холст не меняет размер, камера не
+   * пересчитывает кадр, а книга не ёрзает от того, что открыли инспектор.
+   *
+   * На узком экране обе панели лежат в одном ящике слева, навигатор над
+   * инспектором: 236 и 214 пикселей на телефоне — это весь экран.
    */
   const togglePanels = useShell((s) => s.togglePanels);
+
+  /*
+   * Тулбар — часть панелей у тома и часть страницы у тетради. Читающему в
+   * чистой сцене не нужно ничего: листают жестом и стрелками. Пишущему нужны
+   * инструменты, и они остаются на месте при любом состоянии панелей — это
+   * ровно тот набор, которым делаются заметки, картинки и вырезки.
+   */
+  const toolbar = view !== 'case' && (panels || deskKind === 'journal');
 
   return (
     <>
       <Topbar />
 
       <div className="relative flex min-h-0 flex-1">
-        {panels && !compact && <Navigator />}
-
         <main className="relative min-w-0 flex-1" aria-label="The scene">
           {boot === 'ready' ? <Viewport /> : <div className="h-full w-full bg-ink-950" />}
 
-          {panels && view !== 'case' && <Toolbar />}
+          {toolbar && <Toolbar />}
           {/* Ключ — номер страницы: у каждой свой масштаб и своя панорама */}
           {flat && <FlatEditor key={flatPage} tint={deskTint} />}
 
@@ -192,23 +203,52 @@ export function SceneWorkspace({ boot }: { boot: BootStage }) {
           )}
         </main>
 
-        {panels && !compact && <Inspector />}
-
-        {panels && compact ? (
+        {compact ? (
+          panels ? (
+            <>
+              {/* Заслонка: тычок мимо ящика закрывает его — так это работает везде. */}
+              <button
+                type="button"
+                aria-label="Close the panels"
+                onClick={() => togglePanels(false)}
+                className="absolute inset-0 z-30 bg-ink-950/50"
+              />
+              <div className="absolute inset-y-0 left-0 z-30 flex w-[min(340px,86vw)] flex-col overflow-y-auto border-r border-ink-800 bg-ink-900 shadow-[0_0_40px_rgba(0,0,0,0.55)]">
+                <Navigator />
+                <Inspector />
+              </div>
+            </>
+          ) : null
+        ) : (
           <>
-            {/* Заслонка: тычок мимо ящика закрывает его — так это работает везде. */}
-            <button
-              type="button"
-              aria-label="Close the panels"
-              onClick={() => togglePanels(false)}
-              className="absolute inset-0 z-10 bg-ink-950/50"
-            />
-            <div className="absolute inset-y-0 left-0 z-20 flex w-[min(340px,86vw)] flex-col overflow-y-auto border-r border-ink-800 bg-ink-900 shadow-[0_0_40px_rgba(0,0,0,0.55)]">
+            {/*
+              Ящики остаются в дереве и уезжают за край, а не размонтируются:
+              списки в них длинные, и собирать оглавление заново на каждое
+              нажатие Ctrl+\ незачем. За краем они не видны и не ловят ни
+              фокус, ни указатель.
+            */}
+            <aside
+              aria-label="Navigator"
+              aria-hidden={!panels}
+              inert={!panels}
+              className={`absolute inset-y-0 left-0 z-30 w-[236px] border-r border-ink-800 bg-ink-900/96 shadow-[8px_0_32px_rgba(0,0,0,0.45)] backdrop-blur transition-transform duration-200 ease-out ${
+                panels ? 'translate-x-0' : '-translate-x-full shadow-none'
+              }`}
+            >
               <Navigator />
+            </aside>
+            <aside
+              aria-label="Inspector"
+              aria-hidden={!panels}
+              inert={!panels}
+              className={`absolute inset-y-0 right-0 z-30 w-[214px] border-l border-ink-800 bg-ink-900/96 shadow-[-8px_0_32px_rgba(0,0,0,0.45)] backdrop-blur transition-transform duration-200 ease-out ${
+                panels ? 'translate-x-0' : 'translate-x-full shadow-none'
+              }`}
+            >
               <Inspector />
-            </div>
+            </aside>
           </>
-        ) : null}
+        )}
       </div>
     </>
   );

@@ -33,9 +33,10 @@ export function Navigator() {
   const newJournal = useJournal((s) => s.create);
 
   /*
-   * На узком экране панель не стоит рядом со сценой, а лежит в выдвижном ящике
-   * вместе с инспектором: 236 пикселей рядом с вьюпортом на телефоне — это
-   * вьюпорт шириной в ладонь.
+   * Ширину и рамку задаёт ящик снаружи (см. SceneWorkspace): на широком
+   * экране панель выезжает слева одна, на узком лежит в общем ящике над
+   * инспектором — и там ей нельзя тянуться на всю высоту, иначе инспектор
+   * уезжает за нижний край.
    */
   const compact = useShell((s) => s.device.compact);
 
@@ -62,11 +63,7 @@ export function Navigator() {
   }, [doc.toc]);
 
   return (
-    <aside
-      className={`flex shrink-0 flex-col bg-ink-900 ${
-        compact ? 'w-full' : 'h-full w-[236px] border-r border-ink-800'
-      }`}
-    >
+    <div className={`flex w-full shrink-0 flex-col ${compact ? '' : 'h-full'}`}>
       <div className="border-b border-ink-800 px-3 py-3">
         <div
           className="truncate text-[13px] font-medium text-ash-100"
@@ -218,6 +215,6 @@ export function Navigator() {
         )}
       </nav>
       )}
-    </aside>
+    </div>
   );
 }

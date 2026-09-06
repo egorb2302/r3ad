@@ -32,8 +32,26 @@ export const CASE = {
 export const CASE_WIDTH = CASE.innerWidth + CASE.board * 2;
 export const CASE_HEIGHT = CASE.shelves * CASE.clearance + (CASE.shelves + 1) * CASE.board;
 
-/** Стеллаж стоит позади стола: с рабочей камеры он виден фоном. */
+/**
+ * Уровень пола.
+ *
+ * Ноль сцены — столешница: на ней лежит книга, и вся её геометрия считается от
+ * нуля с M0. Стол же стоит на полу, а стеллаж — не на столе, а рядом с ним,
+ * поэтому пол на высоту стола ниже. Семьдесят четыре сантиметра — обычный
+ * письменный стол.
+ */
+export const FLOOR_Y = -74;
+
+/**
+ * Стеллаж стоит на полу у той же стены, что и стол, но левее него.
+ *
+ * Не позади: на стеллаж смотрят через стол, и столешница закрывала бы два
+ * нижних ряда из трёх при любой разумной высоте камеры. Слева от стола ему
+ * ничего не мешает, а из-за стола он виден краем кадра и при вращении.
+ */
 export const CASE_Z = -78;
+export const CASE_Y = FLOOR_Y;
+export const CASE_X = -112;
 
 /** Плоскость передних кромок полок. */
 export const CASE_FRONT = CASE_Z + CASE.depth / 2;
@@ -44,13 +62,13 @@ const SETBACK = 1.4;
 /** Центр стоящего тома по глубине. */
 export const SHELF_BOOK_Z = CASE_FRONT - SETBACK - COVER_W / 2;
 
-/** Высота настила полки, считая сверху вниз. */
+/** Высота настила полки в мировых координатах, считая сверху вниз. */
 export function shelfSurfaceY(shelf: number): number {
-  return CASE.board + (CASE.shelves - 1 - shelf) * (CASE.clearance + CASE.board);
+  return CASE_Y + CASE.board + (CASE.shelves - 1 - shelf) * (CASE.clearance + CASE.board);
 }
 
 /** Левый внутренний край полки в мировых координатах. */
-export const SHELF_LEFT = -CASE.innerWidth / 2;
+export const SHELF_LEFT = CASE_X - CASE.innerWidth / 2;
 
 /**
  * Габариты закрытого тома.

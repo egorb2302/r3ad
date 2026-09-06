@@ -3,6 +3,9 @@
 /**
  * Сцена: свет, экспозиция, тени, дерево.
  *
+ * Порода одна на стеллаж и стол: это одна комната и одна мебель, а стол под
+ * светлым лаком той же породы (см. scene/bookcase/wood) — не отдельный выбор.
+ *
  * Панель короткая намеренно. Свет — это то, что настраивают один раз и больше
  * не трогают, и десять ползунков здесь означали бы десять способов испортить
  * кадр. Пресет выбирает светотень целиком (см. scene/lighting), а руками
@@ -40,7 +43,7 @@ export function ScenePanel() {
           onChange={(shadows) => setScene({ shadows })}
         />
       </Row>
-      <Row label="Shelving">
+      <Row label="Wood">
         <Select value={scene.wood} options={WOODS} onChange={(wood) => setScene({ wood })} />
       </Row>
       <p className="mt-2 text-[10.5px] leading-snug text-ash-400">

@@ -1,12 +1,20 @@
 'use client';
 
-/** Верхняя строка и нижний тулбар вьюпорта. */
+/**
+ * Верхняя строка и нижний тулбар вьюпорта.
+ *
+ * Шапка — единственное, что остаётся на экране, когда панели убраны, поэтому в
+ * ней ровно то, без чего не обойтись: лого, где мы, и кнопки-иконки. Подписи
+ * у кнопок живут во всплывающей подсказке и в палитре: строка текста на каждую
+ * кнопку превращала бы шапку в меню, а её задача — не мешать книге.
+ */
 import { lastSpread, sheetsToThicknessMm, spreadPages } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { useShare } from '@/store/useShare';
 import { useShell } from '@/store/useShell';
 import { JournalToolbar } from './journal/JournalToolbar';
+import { Icon, IconButton, Logo } from './icons';
 
 export function Topbar() {
   const pagination = useBook((s) => s.pagination);
@@ -42,16 +50,20 @@ export function Topbar() {
   const journal = desk?.kind === 'journal';
 
   return (
-    <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-ink-800 bg-ink-900 px-3">
+    <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-ink-800 bg-ink-900 px-2.5">
       <div className="flex min-w-0 items-center gap-2 text-[11.5px]">
-        <span className="font-medium tracking-tight text-brass-500">r3ad</span>
+        <span className="flex items-center gap-1.5">
+          <Logo size={20} />
+          <span className="font-medium tracking-tight text-brass-500">r3ad</span>
+        </span>
         <span className="text-ink-600">/</span>
         <button
           type="button"
           onClick={() => setView(atDesk ? 'case' : 'desk')}
           title={atDesk ? 'Look at the bookcase (Esc)' : 'Back to the desk (Esc)'}
-          className="rounded px-1 text-ash-400 transition-colors hover:bg-ink-800 hover:text-ash-100"
+          className="flex items-center gap-1 rounded px-1 text-ash-400 transition-colors hover:bg-ink-800 hover:text-ash-100"
         >
+          <Icon name={atDesk ? 'desk' : 'bookcase'} size={13} />
           {atDesk ? 'Desk' : 'Bookcase'}
         </button>
         {atDesk ? (
@@ -70,7 +82,7 @@ export function Topbar() {
         ) : null}
       </div>
 
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 items-center gap-1">
         {/*
           Чужая полка из короткой ссылки. Метка стоит там же, где у снапшота, и
           говорит то же самое: показанное сюда не сохраняется, пока его не
@@ -85,85 +97,71 @@ export function Topbar() {
               type="button"
               onClick={() => void keep()}
               title="Copy this shelf into your own library"
-              className="rounded bg-brass-700 px-2 py-0.5 text-[10.5px] text-ash-100 transition-colors hover:bg-brass-600"
+              className="mr-1 rounded bg-brass-700 px-2 py-0.5 text-[10.5px] text-ash-100 transition-colors hover:bg-brass-600"
             >
               keep it
             </button>
           </>
         ) : null}
         {compact ? null : (
-        <button
-          type="button"
-          onClick={() => share(true)}
-          title="Share this shelf (Shift+S)"
-          className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
-        >
-          share
-        </button>
+          <span
+            className={`tabular mr-1.5 text-[10.5px] ${
+              status === 'paginating' ? 'text-brass-500' : 'text-ash-400'
+            }`}
+          >
+            {/* Пустой стол — нечего и считать: цифры прошлой книги тут врут */}
+            {!desk
+              ? '—'
+              : journal
+                ? `${deskPages} pp · ${sheetsToThicknessMm(deskSheets).toFixed(1)} mm`
+                : status === 'reading'
+                  ? 'reading…'
+                  : status === 'paginating'
+                    ? 'composing…'
+                    : status === 'error'
+                      ? 'error'
+                      : pagination
+                        ? `${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
+                        : 'preparing'}
+          </span>
+        )}
+        {compact ? null : (
+          <IconButton label="Share this shelf (Shift+S)" onClick={() => share(true)}>
+            <Icon name="share" />
+          </IconButton>
         )}
         {desk && !flight && !compact ? (
-          <button
-            type="button"
-            onClick={shelve}
-            title="Close the book and send it to the shelf (S)"
-            className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
-          >
-            shelve
-          </button>
+          <IconButton label="Close the book and send it to the shelf (S)" onClick={shelve}>
+            <Icon name="shelve" />
+          </IconButton>
         ) : null}
-        {compact ? null : (
-        <span
-          className={`tabular text-[10.5px] ${
-            status === 'paginating' ? 'text-brass-500' : 'text-ash-400'
-          }`}
-        >
-          {/* Пустой стол — нечего и считать: цифры прошлой книги тут врут */}
-          {!desk
-            ? '—'
-            : journal
-            ? `${deskPages} pp · ${sheetsToThicknessMm(deskSheets).toFixed(1)} mm`
-            : status === 'reading'
-              ? 'reading…'
-              : status === 'paginating'
-                ? 'composing…'
-                : status === 'error'
-                  ? 'error'
-                  : pagination
-                    ? `${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
-                    : 'preparing'}
-        </span>
-        )}
         {compact ? (
-          <button
-            type="button"
-            onClick={() => openPalette('commands')}
-            title="Commands (Ctrl+K)"
-            className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300"
-          >
-            more
-          </button>
+          <IconButton label="Commands (Ctrl+K)" onClick={() => openPalette('commands')}>
+            <Icon name="more" />
+          </IconButton>
         ) : null}
         {/*
           Плоский режим вынесен в шапку, а не спрятан в палитру: §17 обещает
           тоггл там, где его увидят, — это путь для того, кому 3D мешает читать,
           а не пасхалка для знающих про ⌘K.
         */}
-        <button
-          type="button"
+        <IconButton
+          label="Read this book as plain text (?mode=flat)"
           onClick={() => setMode('plain')}
-          title="Read this book as plain text (?mode=flat)"
-          className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
         >
-          text
-        </button>
-        <button
-          type="button"
+          <Icon name="text" />
+        </IconButton>
+        {/*
+          Панели. Единственная кнопка с состоянием в шапке: пока она горит,
+          навигатор и инспектор выдвинуты по бокам поверх сцены.
+        */}
+        <IconButton
+          label={panels ? 'Hide the panels (Ctrl+\\)' : 'Show the panels (Ctrl+\\)'}
+          active={panels}
           onClick={() => togglePanels()}
-          title="Hide panels (Ctrl+\)"
-          className="rounded px-1.5 py-0.5 text-[10.5px] text-ash-400 transition-colors hover:bg-ink-800 hover:text-ash-100"
         >
-          {compact ? (panels ? 'close' : 'panels') : panels ? 'hide panels' : 'show panels'}
-        </button>
+          <Icon name="panels" />
+        </IconButton>
       </div>
     </header>
   );
@@ -184,7 +182,7 @@ export function Toolbar() {
   const { left, right } = spreadPages(currentSheet, deskPages);
 
   return (
-    <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-ink-700 bg-ink-900/92 px-3 py-2 backdrop-blur">
+    <div className="pointer-events-auto absolute bottom-4 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-xl border border-ink-700 bg-ink-900/92 px-3 py-2 backdrop-blur">
       <button
         type="button"
         onClick={() => requestTurn(-1)}
