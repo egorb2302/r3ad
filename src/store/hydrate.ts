@@ -32,6 +32,7 @@ import { useBook } from './useBook';
 import { useClips } from './useClips';
 import { useJournal } from './useJournal';
 import { useLibrary } from './useLibrary';
+import { useTheme } from './useTheme';
 
 /* ─── Полка → бандл ─────────────────────────────────────────────────────── */
 
@@ -50,6 +51,7 @@ export async function currentBundle(title: string, scope: ShareScope): Promise<B
       // ракурса, в котором её редактировали.
       view: library.view === 'case' ? 'case' : 'desk',
       typography: book.typography,
+      scene: useTheme.getState().scene,
     },
     scope,
   );
@@ -137,6 +139,8 @@ export async function applyBundle(bundle: Bundle, options: ApplyOptions): Promis
       hovered: null,
     });
     useBook.setState({ typography: bundle.typography });
+    // Свет приезжает вместе с полкой: снимок — это и комната тоже.
+    useTheme.setState({ scene: bundle.scene });
 
     /*
      * Книгу со стола открываем сами. Обычно это делает `take`, но он начинает с
@@ -220,7 +224,7 @@ function unpackVolume(volume: BundleVolume, clips: Record<string, Clipping>): Vo
     charCount: volume.charCount,
     pages: volume.pages,
     pagesKey: volume.pagesKey,
-    palette: volume.palette,
+    theme: volume.theme,
     source: unpackSource(volume.source, clips),
     addedAt: volume.addedAt,
   };

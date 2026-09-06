@@ -17,7 +17,8 @@
 import { computeMetrics, DEFAULT_TYPOGRAPHY } from '../typography';
 import { optionsForExtent } from '../text/synthetic';
 import { demoJournal } from '../journal/demo';
-import { hashString, paletteFor } from './palette';
+import { hashString } from './palette';
+import { themeFor } from '../theme';
 import { charsPerPage, journalRecord, type VolumeRecord } from './volume';
 
 /** Название, автор, объём в страницах при кегле 10.5 pt. */
@@ -87,7 +88,7 @@ export function demoLibrary(): VolumeRecord[] {
       charCount,
       pages: null,
       pagesKey: null,
-      palette: paletteFor(`${title}|${author}`),
+      theme: themeFor(`${title}|${author}`),
       source: {
         kind: 'synthetic' as const,
         options: optionsForExtent(charCount, { seed: hashString(id), title, author }),

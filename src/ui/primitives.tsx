@@ -1,7 +1,7 @@
 'use client';
 
 /** Мелкие кирпичи панелей. Держим в одном месте, чтобы панели читались как разметка. */
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 export function Panel({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
   return (
@@ -114,6 +114,49 @@ export function Select<T extends string>({
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * Выбор цвета.
+ *
+ * Родной `input[type=color]` шлёт событие на каждое движение внутри своей
+ * палитры — десятки раз в секунду, — а на том конце перерисовка крышки,
+ * корешка и обреза. Поэтому события склеиваются по кадру: наружу уходит
+ * последнее значение за кадр, и цвет всё равно тянется живьём, но платим мы за
+ * него один раз в кадр, а не двадцать.
+ */
+export function Swatch({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const pending = useRef<string | null>(null);
+  const frame = useRef(0);
+
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+
+  const push = (next: string) => {
+    pending.current = next;
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      if (pending.current) onChange(pending.current);
+    });
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        type="color"
+        value={value}
+        onChange={(e) => push(e.target.value)}
+        className="h-[22px] w-[36px] shrink-0 cursor-pointer rounded border border-ink-700 bg-ink-850 p-[2px]"
+      />
+      <span className="tabular text-[10.5px] uppercase text-ash-400">{value}</span>
+    </div>
   );
 }
 

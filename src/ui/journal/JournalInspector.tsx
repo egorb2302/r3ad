@@ -9,14 +9,16 @@
  * которого здесь нет.
  */
 import { assetSize } from '@/core/assets';
-import { BACKGROUNDS } from '@/core/journal/background';
+import { BACKGROUNDS, RULE_MM, RULE_RANGE } from '@/core/journal/background';
 import { journalExtent, journalStats } from '@/core/journal/journal';
 import { blockLayer, type Block } from '@/core/journal/types';
 import { bylineOf } from '@/core/clipping/types';
 import { dateOf } from '@/core/clipping/card';
 import { BRUSH_OF, useJournal } from '@/store/useJournal';
 import { useClips } from '@/store/useClips';
+import { useLibrary } from '@/store/useLibrary';
 import { Panel, Row, Select, Slider, Stat, Toggle } from '../primitives';
+import { LayersPanel } from './LayersPanel';
 
 /** Чернила: тёмные и насыщенные, чтобы читались на кремовой бумаге. */
 const INKS = ['#1b2b3f', '#6d1f1f', '#1f4d2c', '#2f2f33', '#4a2f7a'];
@@ -34,14 +36,16 @@ export function JournalInspector() {
   const setBrush = useJournal((s) => s.setBrush);
   const setEraser = useJournal((s) => s.setEraser);
   const setBackground = useJournal((s) => s.setBackground);
+  const setRule = useJournal((s) => s.setRule);
   const addLeaf = useJournal((s) => s.addLeaf);
+  const gsm = useLibrary((s) => s.desk?.theme.paper.gsm);
   const apply = useJournal((s) => s.apply);
   const deleteSelection = useJournal((s) => s.deleteSelection);
 
   const journal = openId ? docs[openId] ?? null : null;
   if (!journal) return null;
 
-  const extent = journalExtent(journal);
+  const extent = journalExtent(journal, gsm);
   const stats = journalStats(journal);
   const assetBytes = stats.images.reduce((sum, hash) => sum + assetSize(hash), 0);
 
@@ -65,7 +69,7 @@ export function JournalInspector() {
         <Stat
           label="Thickness"
           value={`${extent.thicknessMm.toFixed(1)} mm`}
-          hint="Leaf count × 0.10 mm plus two boards — the same formula as a volume"
+          hint="Leaf count × paper weight plus two boards — the same formula as a volume"
         />
         <Stat label="Strokes" value={stats.strokes} />
         <Stat
@@ -106,9 +110,28 @@ export function JournalInspector() {
               onChange={(background) => setBackground(background)}
             />
           </Row>
+          {/*
+            Шаг — у тетради, а вид разлиновки — у страницы: разлиновку покупают
+            вместе с тетрадью, а перевернуть посреди конспекта лист в клетку
+            можно и в тетради в линейку.
+          */}
+          {page.background === 'blank' ? null : (
+            <Row label="Step">
+              <Slider
+                value={journal.ruleMm ?? RULE_MM}
+                min={RULE_RANGE.min}
+                max={RULE_RANGE.max}
+                step={0.5}
+                suffix=" mm"
+                onChange={setRule}
+              />
+            </Row>
+          )}
           <Stat label="Number" value={`${(flatPage ?? 0) + 1} of ${extent.pages}`} />
         </Panel>
       ) : null}
+
+      <LayersPanel />
 
       {settings && brush ? (
         <Panel title={brush === 'marker' ? 'Marker' : 'Pen'}>

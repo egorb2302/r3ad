@@ -45,6 +45,7 @@ export function Workspace() {
   const setView = useLibrary((s) => s.setView);
   const shelve = useLibrary((s) => s.shelve);
   const deskKind = useLibrary((s) => s.desk?.kind ?? null);
+  const deskTint = useLibrary((s) => s.desk?.theme.paper.tint ?? 'cream');
 
   const flatPage = useJournal((s) => s.flatPage);
   const flat = flatPage !== null;
@@ -285,7 +286,7 @@ export function Workspace() {
 
           {!panelsHidden && view !== 'case' && <Toolbar />}
           {/* Ключ — номер страницы: у каждой свой масштаб и своя панорама */}
-          {flat && <FlatEditor key={flatPage} />}
+          {flat && <FlatEditor key={flatPage} tint={deskTint} />}
 
           {(boot !== 'ready' || status === 'reading' || status === 'paginating' || status === 'error') && (
             <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">

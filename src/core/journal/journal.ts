@@ -7,6 +7,7 @@
  * половину листа. Поэтому «добавить страницу» — это добавить лист.
  */
 import { pagesToSheets, PHYS, sheetsToThicknessMm } from '../units';
+import { RULE_MM } from './background';
 import { id } from './ids';
 import type { JournalDoc, PageBackground, PageDoc } from './types';
 
@@ -43,6 +44,7 @@ export function newJournal(title: string, leaves = DEFAULT_LEAVES, background: P
     createdAt: now,
     updatedAt: now,
     defaultBackground: background,
+    ruleMm: RULE_MM,
     pages: [],
   };
 
@@ -62,13 +64,17 @@ export interface JournalExtent {
  * Считается ровно тем же способом, что и объём тома: число листов на толщину
  * листа плюс две крышки. Тетрадь на полке обязана толстеть от того, что в ней
  * пишут, — это тот же закон, из-за которого том толстеет от кегля.
+ *
+ * Плотность бумаги приходит снаружи и необязательна: она живёт в теме, то есть
+ * в записи библиотеки, а тетрадь про библиотеку не знает. Не передали — считаем
+ * по обычному офсету, как и до M6.
  */
-export function journalExtent(journal: JournalDoc): JournalExtent {
+export function journalExtent(journal: JournalDoc, gsm?: number): JournalExtent {
   const sheets = pagesToSheets(journal.pages.length);
   return {
     pages: journal.pages.length,
     sheets,
-    thicknessMm: sheetsToThicknessMm(sheets) + PHYS.coverThicknessMm * 2,
+    thicknessMm: sheetsToThicknessMm(sheets, gsm) + PHYS.coverThicknessMm * 2,
   };
 }
 

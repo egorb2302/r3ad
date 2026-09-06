@@ -13,12 +13,19 @@
  * раскрытой книги красятся тем же переплётным тоном, что и корешок, — так что
  * стык приходится на кадр, в котором обе выглядят одинаково. Честнее было бы
  * раскрывать саму коробку, но это уже не коробка, а вторая модель книги.
+ *
+ * **Крышки с M6 печатаются.** Полёт — единственный кадр, где закрытую книгу
+ * видно с лица: на полке от неё остаётся корешок, на столе она раскрыта. Ради
+ * этих девятисот миллисекунд том и получает те же карты крышки, что книга на
+ * столе, — иначе тиснение, ради которого затевалась вся кастомизация, не было
+ * бы видно нигде.
  */
 import { useEffect, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Placement } from '@/core/library/shelfLayout';
 import type { VolumeRecord } from '@/core/library/volume';
+import { coverSurface } from '../materials/cover';
 import { VOLUME_DEPTH, VOLUME_HEIGHT } from './caseGeometry';
 import { composeShelfPose } from './pose';
 import { spineAtlas } from './spineAtlas';
@@ -58,6 +65,32 @@ export function FlyingVolume({ volume, thickness, placement, onArrived }: Flying
     return { curve: flightPath(desk, shelf), shelfQuaternion, point: new THREE.Vector3() };
   }, [placement, thickness]);
 
+  /*
+   * Материалы граней: две крышки печатаются, остальные четыре берут атлас.
+   * Порядок BoxGeometry — +x, −x, +y, −y, +z, −z, и по развёртке (spineMesh)
+   * крышки лежат на ±x, а корешок на +z.
+   */
+  const materials = useMemo(() => {
+    const solo = soloSpineResources().material;
+    const faces = (['front', 'back'] as const).map((side) => {
+      const art = coverSurface({ theme: volume.theme, title: volume.title, author: volume.author, side });
+      return new THREE.MeshStandardMaterial({
+        map: art.map,
+        bumpMap: art.bumpMap,
+        bumpScale: art.bumpScale,
+        roughness: art.roughness,
+      });
+    });
+    return [faces[0], faces[1], solo, solo, solo, solo];
+  }, [volume]);
+
+  useEffect(
+    () => () => {
+      for (const material of materials.slice(0, 2)) material.dispose();
+    },
+    [materials],
+  );
+
   // Клетка атласа задаётся сдвигом карты: у одиночного меша врезки в шейдер нет.
   useEffect(() => {
     const cell = spineAtlas().cellFor(volume, thickness);
@@ -93,9 +126,8 @@ export function FlyingVolume({ volume, thickness, placement, onArrived }: Flying
   });
 
   return (
-    <mesh ref={mesh} castShadow receiveShadow>
+    <mesh ref={mesh} material={materials} castShadow receiveShadow>
       <primitive object={soloSpineResources().geometry} attach="geometry" />
-      <primitive object={soloSpineResources().material} attach="material" />
     </mesh>
   );
 }

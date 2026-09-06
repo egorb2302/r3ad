@@ -23,6 +23,7 @@ import {
   undo as undoStack,
   type Command,
   type CommandStack,
+  type LayerFlags,
 } from '@/core/journal/commands';
 import { demoJournal } from '@/core/journal/demo';
 import { journalExtent, newJournal, newLeaf } from '@/core/journal/journal';
@@ -97,6 +98,9 @@ interface JournalState {
   create: () => void;
   addLeaf: () => void;
   setBackground: (background: PageBackground) => void;
+  setRule: (mm: number) => void;
+  setLayerFlags: (id: string, flags: Partial<LayerFlags>) => void;
+  moveLayer: (id: string, direction: 1 | -1) => void;
   insertImage: (file: Blob) => Promise<void>;
   insertClipping: (clipping: Clipping, at?: { x: number; y: number }) => void;
 
@@ -276,6 +280,47 @@ export const useJournal = create<JournalState>((set, get) => ({
       from: page.background,
       to: background,
     });
+  },
+
+  /** Шаг разлиновки. Один на всю тетрадь — так же, как её покупают. */
+  setRule: (mm) => {
+    const journal = openJournal(get());
+    if (!journal || journal.ruleMm === mm) return;
+    get().apply({ type: 'journal:rule', from: journal.ruleMm, to: mm });
+  },
+
+  setLayerFlags: (id, flags) => {
+    const page = flatPageDoc(get());
+    const layer = page?.layers.find((l) => l.id === id);
+    if (!page || !layer) return;
+
+    const from = { visible: layer.visible, locked: layer.locked };
+    const to = { ...from, ...flags };
+    if (to.visible === from.visible && to.locked === from.locked) return;
+
+    get().apply({ type: 'layer:flags', page: page.id, id, from, to });
+  },
+
+  /**
+   * Поднять или опустить слой.
+   *
+   * `direction` — в терминах экрана: 1 значит «выше», то есть ближе к
+   * смотрящему. В документе слои лежат снизу вверх, поэтому «выше» — это
+   * дальше по списку, и панель, которая рисует их сверху вниз, переворачивает
+   * порядок у себя, а не здесь.
+   */
+  moveLayer: (id, direction) => {
+    const page = flatPageDoc(get());
+    if (!page) return;
+
+    const from = page.layers.map((layer) => layer.id);
+    const at = from.indexOf(id);
+    const to = [...from];
+    const target = at + direction;
+    if (at < 0 || target < 0 || target >= from.length) return;
+
+    [to[at], to[target]] = [to[target], to[at]];
+    get().apply({ type: 'layers:order', page: page.id, from, to });
   },
 
   /**

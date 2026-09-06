@@ -26,12 +26,26 @@ import type { Clipping } from '../clipping/types';
 import type { JournalDoc } from '../journal/types';
 import type { VolumeRecord, VolumeSource } from '../library/volume';
 import type { SpinePalette } from '../library/palette';
+import {
+  DEFAULT_SCENE,
+  themeWithCover,
+  type BookTheme,
+  type SceneTheme,
+} from '../theme';
 import type { DocFormat } from '../content';
 import type { SyntheticOptions } from '../text/synthetic';
 import type { Typography } from '../typography';
 
 export const BUNDLE_FORMAT = 'r3ad';
-export const BUNDLE_VERSION = 1;
+/**
+ * Версия формата.
+ *
+ * Вторая: на M6 у тома вместо палитры корешка появилась тема целиком (§8), а у
+ * бандла — сцена. Первую версию читаем и переводим (`parseBundle`), и это не
+ * вежливость к чужим файлам, а необходимость: тем же форматом записана
+ * локальная база, то есть полка всех, кто открывал сайт до этой недели.
+ */
+export const BUNDLE_VERSION = 2;
 
 /**
  * Что кладём (SPEC §11.2). Порядок — по возрастанию: каждый следующий объём
@@ -87,10 +101,23 @@ export interface BundleVolume {
   charCount: number;
   pages: number | null;
   pagesKey: string | null;
-  palette: SpinePalette;
+  theme: BookTheme;
   addedAt: number;
   source: BundleSource;
 }
+
+/**
+ * Том из бандла любой версии.
+ *
+ * В первой у него была палитра корешка и не было темы, во второй наоборот;
+ * разбору приезжает то одно, то другое, и различать их приходится по факту, а
+ * не по номеру версии: локальная база хранит одну запись, и переписана она
+ * может быть в любой момент.
+ */
+type StoredVolume = Omit<BundleVolume, 'theme'> & {
+  theme?: BookTheme;
+  palette?: SpinePalette;
+};
 
 /** Ракурс, на котором снят снимок. Не тип сцены: ядро про сцену не знает. */
 export type BundleView = 'desk' | 'case';
@@ -112,6 +139,8 @@ export interface Bundle {
   desk: string | null;
   view: BundleView;
   typography: Typography;
+  /** Свет, экспозиция, тени и порода дерева — комната, в которой снята полка. */
+  scene: SceneTheme;
 }
 
 export interface BundleInput {
@@ -122,6 +151,7 @@ export interface BundleInput {
   clippings: Record<string, Clipping>;
   view: BundleView;
   typography: Typography;
+  scene: SceneTheme;
 }
 
 /**
@@ -156,7 +186,7 @@ export async function buildBundle(input: BundleInput, scope: ShareScope): Promis
       charCount: record.charCount,
       pages: record.pages,
       pagesKey: record.pagesKey,
-      palette: record.palette,
+      theme: record.theme,
       addedAt: record.addedAt,
       source: await packSource(record.source, scope),
     });
@@ -183,6 +213,7 @@ export async function buildBundle(input: BundleInput, scope: ShareScope): Promis
     desk: input.desk?.id ?? null,
     view: input.view,
     typography: input.typography,
+    scene: input.scene,
   };
 
   bundle.assets = collectAssets(bundle);
@@ -358,6 +389,8 @@ export function parseBundle(input: unknown): Bundle {
 
   return {
     ...bundle,
+    version: BUNDLE_VERSION,
+    volumes: bundle.volumes.map(dressVolume),
     journals: Array.isArray(bundle.journals) ? bundle.journals : [],
     clippings: Array.isArray(bundle.clippings) ? bundle.clippings : [],
     assets: Array.isArray(bundle.assets) ? bundle.assets : [],
@@ -365,7 +398,31 @@ export function parseBundle(input: unknown): Bundle {
     view: bundle.view === 'case' ? 'case' : 'desk',
     title: typeof bundle.title === 'string' ? bundle.title : 'A shelf',
     desk: typeof bundle.desk === 'string' ? bundle.desk : null,
+    scene: bundle.scene ?? DEFAULT_SCENE,
   } as Bundle;
+}
+
+/**
+ * Том из бандла любой версии — в том виде, в каком его ждёт полка.
+ *
+ * Из первой версии приезжает палитра корешка и больше ничего, поэтому тема
+ * собирается из её цвета: материал, тиснение и потёртость выводятся из
+ * названия — ровно так же, как у книги, которую сегодня открыли впервые. Полка,
+ * поднятая из старой базы, выглядит не «как раньше», а как выглядела бы,
+ * появись M6 сразу, — и это лучший ответ из возможных: цвета в записи было
+ * ровно столько, сколько было.
+ */
+function dressVolume(volume: StoredVolume): BundleVolume {
+  if (volume.theme) return volume as BundleVolume;
+
+  const { palette, ...rest } = volume;
+  return {
+    ...rest,
+    theme: themeWithCover(
+      `${volume.title}|${volume.author}`,
+      palette?.cloth ?? '#3c4d63',
+    ),
+  };
 }
 
 export type { StoredAsset };

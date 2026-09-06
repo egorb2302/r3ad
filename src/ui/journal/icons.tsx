@@ -65,3 +65,40 @@ export function UndoIcon({ flip }: { flip?: boolean }) {
     </svg>
   );
 }
+
+/**
+ * Символы панели слоёв: глаз, замок и стрелка.
+ *
+ * Нарисованы здесь же и той же обводкой в 1.3 — иначе строка слоя вышла бы
+ * тяжелее строки инструмента, стоящей от неё в двух сантиметрах.
+ */
+const marks = {
+  eye: 'M1.6 8 C4 4.4 12 4.4 14.4 8 C12 11.6 4 11.6 1.6 8 Z M8 6.2 a1.8 1.8 0 1 0 0 3.6 a1.8 1.8 0 1 0 0 -3.6',
+  blind: 'M1.6 8 C4 4.4 12 4.4 14.4 8 C13.4 9.5 11.8 10.6 10 11.1 M2.6 13.4 L13.4 2.6',
+  locked: 'M4 7.4 H12 V13.4 H4 Z M5.8 7.4 V5.2 a2.2 2.2 0 0 1 4.4 0 V7.4',
+  open: 'M4 7.4 H12 V13.4 H4 Z M5.8 7.4 V5.2 a2.2 2.2 0 0 1 4.4 0',
+  up: 'M8 12.4 V3.8 M4.4 7.4 L8 3.8 L11.6 7.4',
+} as const;
+
+export type LayerMark = keyof typeof marks;
+
+export function LayerIcon({ mark, flip }: { mark: LayerMark; flip?: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      aria-hidden="true"
+      style={flip ? { transform: 'rotate(180deg)' } : undefined}
+    >
+      <path
+        d={marks[mark]}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.3}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}

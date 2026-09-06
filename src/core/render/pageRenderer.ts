@@ -8,6 +8,7 @@
 import { Compositor } from '../paginate/compositor';
 import type { PaginationResult, Chapter } from '../paginate/paginate';
 import type { PageMetrics, Typography } from '../typography';
+import { PAPERS, type PaperStock } from '../theme';
 import { rasterize } from '../rasterize/svgRasterizer';
 import { fontCssForText, type FontStyle } from '../rasterize/fonts';
 
@@ -35,6 +36,7 @@ export class PageRenderer {
   private pagination: PaginationResult;
   private metrics: PageMetrics;
   private typography: Typography;
+  private paper: PaperStock;
   private loadedChapter: string | null = null;
 
   /**
@@ -54,11 +56,13 @@ export class PageRenderer {
     pagination: PaginationResult,
     metrics: PageMetrics,
     typography: Typography,
+    paper: PaperStock = PAPERS.cream,
   ) {
     this.chapters = new Map(chapters.map((c) => [c.id, c]));
     this.pagination = pagination;
     this.metrics = metrics;
     this.typography = typography;
+    this.paper = paper;
     this.compositor = new Compositor(metrics, typography);
   }
 
@@ -104,9 +108,16 @@ export class PageRenderer {
         node: this.compositor.node,
         widthPx: m.pageWidthPx,
         heightPx: m.pageHeightPx,
-        css: this.compositor.css,
+        /*
+         * Краска набора дописывается правилом поверх стилей композитора, а не
+         * протаскивается в него самого: от цвета текста разбивка не зависит, и
+         * заводить ради него ещё один аргумент у вёрстки значило бы делать вид,
+         * что зависит.
+         */
+        css: `${this.compositor.css}
+.r3ad-flow{color:${this.paper.ink}}`,
         fontCss: font.css,
-        background: '#f6f1e6',
+        background: this.paper.page,
         offsetX,
         offsetY: m.marginTopPx,
         overlayHtml,

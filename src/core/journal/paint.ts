@@ -12,13 +12,19 @@
  */
 import { paintCard } from '../clipping/card';
 import type { Clipping } from '../clipping/types';
+import { PAPERS, type PaperTint } from '../theme';
 import { paintBackground } from './background';
 import { strokePath } from './stroke';
 import { FACES, TEXT_LEADING, wrapText } from './text';
 import { blockLayer, PAGE_H, PAGE_W, type Block, type PageDoc, type Stroke } from './types';
 
-/** Тон бумаги тот же, что у страниц тома (scene/geometry.ts): это одна бумага. */
-export const JOURNAL_PAPER = '#efe6d4';
+/**
+ * Тон бумаги тот же, что у страниц тома: это одна бумага.
+ *
+ * С M6 он выбирается (§8), поэтому приезжает в опциях. Умолчание оставлено
+ * кремовым — тем самым, каким страница тетради была с M3.
+ */
+export const JOURNAL_PAPER = PAPERS.cream.page;
 
 export interface PaintOptions {
   /** Битмап ассета по хэшу. Нет картинки — на её месте рисуется рамка ожидания. */
@@ -37,6 +43,10 @@ export interface PaintOptions {
   hide?: ReadonlySet<string> | null;
   /** Печатать ли бумагу и разлиновку. Живой слой поверх готовой страницы — нет. */
   paper?: boolean;
+  /** Тон бумаги тетради. Берётся из темы её записи в библиотеке. */
+  tint?: PaperTint;
+  /** Шаг разлиновки, мм. Свойство тетради, а страница о ней не знает. */
+  rule?: number;
 }
 
 export function paintPage(
@@ -45,9 +55,9 @@ export function paintPage(
   options: PaintOptions = {},
 ) {
   if (options.paper !== false) {
-    ctx.fillStyle = JOURNAL_PAPER;
+    ctx.fillStyle = options.tint ? PAPERS[options.tint].page : JOURNAL_PAPER;
     ctx.fillRect(0, 0, PAGE_W, PAGE_H);
-    paintBackground(ctx, page.background);
+    paintBackground(ctx, page.background, options.rule);
   }
 
   /*
@@ -181,9 +191,17 @@ function paintImage(
  * Точку вносим в систему координат блока обратным поворотом, а не проверяем
  * повёрнутый прямоугольник: так же, как его рисуют, только наоборот. Идём с
  * конца — верхний блок перехватывает щелчок у нижнего.
+ *
+ * Запертый и погашенный слой не отдаёт ничего, и это и есть весь смысл замка:
+ * не «нельзя изменить, но можно взять», а «указатель проходит насквозь». Иначе
+ * замок пришлось бы проверять в каждом инструменте по отдельности — и однажды
+ * забыть в одном.
  */
 export function blockAt(page: PageDoc, x: number, y: number): Block | null {
-  const blocks = blockLayer(page).blocks;
+  const layer = blockLayer(page);
+  if (!layer.visible || layer.locked) return null;
+
+  const blocks = layer.blocks;
 
   for (let i = blocks.length - 1; i >= 0; i--) {
     const block = blocks[i];

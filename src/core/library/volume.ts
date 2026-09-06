@@ -19,7 +19,7 @@ import { pagesToSheets, PHYS, sheetsToThicknessMm } from '../units';
 import { id as id12 } from '../journal/ids';
 import { journalExtent } from '../journal/journal';
 import type { JournalDoc } from '../journal/types';
-import { paletteFor, type SpinePalette } from './palette';
+import { themeFor, type BookTheme } from '../theme';
 import type { SyntheticOptions } from '../text/synthetic';
 
 /**
@@ -78,7 +78,15 @@ export interface VolumeRecord {
    * набор сменили, и точное число снова становится оценкой.
    */
   pagesKey: string | null;
-  palette: SpinePalette;
+  /**
+   * Как том выглядит (SPEC §8): переплёт, тиснение, бумага, обрез.
+   *
+   * Тема лежит на записи библиотеки, а не в отдельном сторе тем, и это то же
+   * решение, по которому здесь лежит цвет корешка: внешность — свойство книги,
+   * а не приложения. Отсюда она сама собой едет в снимок, в файл и в базу, и
+   * форкнутая полка выглядит у получателя так же, как у автора.
+   */
+  theme: BookTheme;
   source: VolumeSource;
   addedAt: number;
 }
@@ -120,11 +128,15 @@ export interface VolumeExtent {
 }
 
 /**
- * Физический объём тома при данном наборе.
+ * Физический объём тома при данном наборе и этой бумаге.
  *
  * Толщина корешка — это `blockThickness + две крышки`, а не только блок:
  * на полке переплёт виден целиком, и без картона тонкая книга выглядела бы
  * листом бумаги.
+ *
+ * Плотность бумаги входит сюда наравне с числом страниц (M6, §8): том на
+ * стограммовой бумаге толще того же тома на семидесятке на треть, и на полке
+ * это видно сразу — ряд разъезжается.
  */
 export function volumeExtent(
   volume: VolumeRecord,
@@ -145,7 +157,7 @@ export function volumeExtent(
   return {
     pages,
     sheets,
-    thicknessMm: sheetsToThicknessMm(sheets) + PHYS.coverThicknessMm * 2,
+    thicknessMm: sheetsToThicknessMm(sheets, volume.theme.paper.gsm) + PHYS.coverThicknessMm * 2,
     exact,
   };
 }
@@ -154,7 +166,7 @@ export function volumeExtent(
 export function volumeFromDoc(
   doc: ContentDoc,
   source: VolumeSource,
-  palette?: SpinePalette,
+  theme?: BookTheme,
 ): VolumeRecord {
   return {
     id: doc.id,
@@ -166,7 +178,7 @@ export function volumeFromDoc(
     charCount: doc.charCount,
     pages: null,
     pagesKey: null,
-    palette: palette ?? paletteFor(`${doc.title}|${doc.author}`),
+    theme: theme ?? themeFor(`${doc.title}|${doc.author}`),
     source,
     addedAt: Date.now(),
   };
@@ -182,7 +194,7 @@ export function volumeFromDoc(
 export function compiledRecord(
   title: string,
   clippings: Clipping[],
-  palette?: SpinePalette,
+  theme?: BookTheme,
 ): VolumeRecord {
   const names = [...new Set(clippings.map((c) => c.attribution.sourceName))];
   const charCount = clippings.reduce(
@@ -200,7 +212,7 @@ export function compiledRecord(
     charCount,
     pages: null,
     pagesKey: null,
-    palette: palette ?? paletteFor(`dossier|${title}|${clippings.length}`),
+    theme: theme ?? themeFor(`dossier|${title}|${clippings.length}`),
     source: { kind: 'compiled', clippings },
     addedAt: Date.now(),
   };
@@ -219,7 +231,7 @@ function blockChars(block: Clipping['body'][number]): number {
  * тетрадях. Число страниц сразу точное, поэтому корешок у неё правильной
  * толщины с первой секунды, а не после «вёрстки».
  */
-export function journalRecord(journal: JournalDoc, palette?: SpinePalette): VolumeRecord {
+export function journalRecord(journal: JournalDoc, theme?: BookTheme): VolumeRecord {
   const extent = journalExtent(journal);
   const year = new Date(journal.createdAt).getFullYear();
 
@@ -233,7 +245,7 @@ export function journalRecord(journal: JournalDoc, palette?: SpinePalette): Volu
     charCount: 0,
     pages: extent.pages,
     pagesKey: 'journal',
-    palette: palette ?? paletteFor(`journal|${journal.title}|${journal.id}`),
+    theme: theme ?? themeFor(`journal|${journal.title}|${journal.id}`),
     source: { kind: 'journal', journalId: journal.id },
     addedAt: journal.createdAt,
   };

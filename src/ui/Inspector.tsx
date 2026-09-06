@@ -16,6 +16,8 @@ import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
 import { JournalInspector } from './journal/JournalInspector';
 import { ClipPanel } from './clips/ClipPanel';
 import { SharePanel } from './share/SharePanel';
+import { BindingPanel } from './theme/BindingPanel';
+import { ScenePanel } from './theme/ScenePanel';
 
 /**
  * Языки, для которых имеет смысл переключаться вручную.
@@ -109,6 +111,13 @@ export function Inspector() {
         ) : null}
       </Panel>
       )}
+
+      {/*
+        Переплёт выше набора — так же, как в §12.2: книгу сперва одевают, а
+        потом в неё вчитываются. Панель одинаково относится и к тому, и к
+        тетради: тетрадь — это книга, просто пустая.
+      */}
+      <BindingPanel />
 
       <Panel title="Type">
         <Row label="Size">
@@ -222,6 +231,8 @@ export function Inspector() {
       )}
 
       <ClipPanel />
+
+      <ScenePanel />
 
       <SharePanel />
 

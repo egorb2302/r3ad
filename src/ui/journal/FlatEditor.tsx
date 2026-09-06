@@ -46,6 +46,7 @@ import {
   type Rect,
   type Stroke,
 } from '@/core/journal/types';
+import type { PaperTint } from '@/core/theme';
 import { flatRect, serverFlatRect, subscribeFlatRect } from '@/scene/journal/flatFrame';
 import { BRUSH_OF, useJournal } from '@/store/useJournal';
 import { clippingFor, useClips } from '@/store/useClips';
@@ -71,7 +72,14 @@ interface Draft {
   fresh: boolean;
 }
 
-export function FlatEditor() {
+/**
+ * Тон бумаги приходит пропсом, а не читается из библиотеки.
+ *
+ * Редактор знает про тетрадь и не знает про полку — так было с M3, и заводить
+ * ему знакомство со стором библиотеки ради одного цвета незачем. Кто эту
+ * тетрадь держит на столе, знает Workspace, он и передаёт.
+ */
+export function FlatEditor({ tint }: { tint: PaperTint }) {
   const rect = useSyncExternalStore(subscribeFlatRect, flatRect, serverFlatRect);
 
   const openId = useJournal((s) => s.openId);
@@ -90,6 +98,8 @@ export function FlatEditor() {
 
   const journal = openId ? docs[openId] ?? null : null;
   const page = journal && flatPage !== null ? journal.pages[flatPage] ?? null : null;
+  /** Слой чернил этой страницы: по его флагам решается, принимает ли она перо. */
+  const ink = page ? strokeLayer(page) : { visible: true, locked: true };
 
   const base = useRef<HTMLCanvasElement>(null);
   const live = useRef<HTMLCanvasElement>(null);
@@ -180,9 +190,16 @@ export function FlatEditor() {
     ctx.beginPath();
     ctx.rect(0, 0, PAGE_W, PAGE_H);
     ctx.clip();
-    paintPage(ctx, page, { image: imageFor, size: imageSize, clipping: clippingFor, hide: hidden });
+    paintPage(ctx, page, {
+      image: imageFor,
+      size: imageSize,
+      clipping: clippingFor,
+      hide: hidden,
+      tint,
+      rule: journal?.ruleMm,
+    });
     ctx.restore();
-  }, [hidden, page, prepare]);
+  }, [hidden, journal?.ruleMm, page, prepare, tint]);
 
   const paintLive = useCallback(() => {
     const ctx = prepare(live.current);
@@ -311,6 +328,14 @@ export function FlatEditor() {
       if (clipping) insertClipping(clipping, point);
       return;
     }
+
+    /*
+     * Запертый или погашенный слой чернил не принимает ни штриха, ни ластика.
+     * Проверка здесь одна на оба инструмента: ниже начинается работа с
+     * документом, и пускать её дальше значило бы дорисовать в слой, которого
+     * на экране нет.
+     */
+    if (!ink.visible || ink.locked) return;
 
     if (tool === 'eraser') {
       erased.current = new Set();

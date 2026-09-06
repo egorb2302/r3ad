@@ -14,7 +14,13 @@
  * Затронутые страницы получают новую идентичность, нетронутые сохраняют
  * прежнюю, и кэш текстур может держать их прямо по ссылке на объект.
  */
-import type { Block, JournalDoc, PageBackground, PageDoc, Stroke } from './types';
+import type { Block, JournalDoc, Layer, PageBackground, PageDoc, Stroke } from './types';
+
+/** Что можно переключить у слоя, не трогая его содержимого. */
+export interface LayerFlags {
+  visible: boolean;
+  locked: boolean;
+}
 
 export type Command =
   | { type: 'strokes:add'; page: string; strokes: Stroke[] }
@@ -23,6 +29,16 @@ export type Command =
   | { type: 'block:remove'; page: string; block: Block }
   | { type: 'block:update'; page: string; id: string; from: Block; to: Block }
   | { type: 'page:background'; page: string; from: PageBackground; to: PageBackground }
+  /*
+   * Слои (SPEC §9.2, §21.11). Видимость и замок — такие же правки документа,
+   * как штрих: их отменяют тем же ⌘Z и по той же причине — выключил слой,
+   * не увидел, что искал, вернул назад одним движением.
+   */
+  | { type: 'layer:flags'; page: string; id: string; from: LayerFlags; to: LayerFlags }
+  /** Порядок слоёв — списком идентификаторов: обратная команда тогда тривиальна. */
+  | { type: 'layers:order'; page: string; from: string[]; to: string[] }
+  /** Шаг разлиновки — свойство тетради, а не страницы (см. types.ts). */
+  | { type: 'journal:rule'; from: number | undefined; to: number | undefined }
   | { type: 'pages:add'; at: number; pages: PageDoc[] }
   | { type: 'pages:remove'; at: number; pages: PageDoc[] };
 
@@ -48,7 +64,19 @@ export function invert(command: Command): Command {
       return { type: 'block:add', page: command.page, block: command.block };
     case 'block:update':
       return { ...command, from: command.to, to: command.from };
+    /*
+     * Обратная у всех четырёх одна — поменять `from` и `to` местами, — но
+     * записаны они по отдельности: в объединённой ветке типы полей сливаются
+     * в союз, и проверяющий перестаёт видеть, что цвет возвращается цветом, а
+     * порядок слоёв порядком.
+     */
     case 'page:background':
+      return { ...command, from: command.to, to: command.from };
+    case 'layer:flags':
+      return { ...command, from: command.to, to: command.from };
+    case 'layers:order':
+      return { ...command, from: command.to, to: command.from };
+    case 'journal:rule':
       return { ...command, from: command.to, to: command.from };
     case 'pages:add':
       return { type: 'pages:remove', at: command.at, pages: command.pages };
@@ -119,6 +147,30 @@ export function applyCommand(journal: JournalDoc, command: Command): JournalDoc 
 
     case 'page:background':
       return withPage(journal, command.page, (page) => ({ ...page, background: command.to }));
+
+    case 'layer:flags':
+      return withPage(journal, command.page, (page) => ({
+        ...page,
+        layers: page.layers.map((layer) =>
+          layer.id === command.id ? { ...layer, ...command.to } : layer,
+        ),
+      }));
+
+    case 'layers:order':
+      return withPage(journal, command.page, (page) => ({
+        ...page,
+        /*
+         * Пересобираем по списку, а не меняем два элемента местами: команда
+         * тогда описывает результат целиком и переживает любую перестановку,
+         * включая ту, которой в интерфейсе ещё нет.
+         */
+        layers: command.to
+          .map((id) => page.layers.find((layer) => layer.id === id))
+          .filter((layer): layer is Layer => Boolean(layer)),
+      }));
+
+    case 'journal:rule':
+      return { ...journal, ruleMm: command.to, updatedAt: Date.now() };
 
     case 'pages:add': {
       const pages = [...journal.pages];

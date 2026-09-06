@@ -140,10 +140,22 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
   const flatX = flat?.x ?? 0;
   const flatY = flat?.y ?? 0;
 
+  /*
+   * Ракурс назначается независимо от того, готовы ли уже OrbitControls.
+   *
+   * Стойка объявлена в сцене раньше самих контролов, а эффекты выполняются в
+   * порядке дерева, — значит, на первом монтировании `state.controls` ещё пуст.
+   * Пока этот эффект на этом заканчивался, первый ракурс доезжал только в том
+   * случае, если потом менялся: полка, открытая по ссылке `?s=`, приходит в
+   * состояние «смотрим на стеллаж» до первого кадра, менять его больше некому —
+   * и камера так и оставалась над пустым столом.
+   *
+   * Поэтому здесь считается и запоминается только сам переезд; контролов он не
+   * касается. Всё, что нужно им, делает кадровый цикл, где они уже есть.
+   */
   useEffect(() => {
     const state = store.getState();
     const controls = state.controls as unknown as OrbitLike | null;
-    if (!controls) return;
 
     const camera = state.camera as THREE.PerspectiveCamera;
     const next = shotFor(
@@ -159,20 +171,14 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
       // Наклон к тетради короче переезда: это движение головы, а не переход.
       span: view === 'flat' || previous?.free === false ? LEAN : TRAVEL,
       from: camera.position.clone(),
-      fromTarget: controls.target.clone(),
+      fromTarget: controls ? controls.target.clone() : new THREE.Vector3(),
       fromUp: camera.up.clone(),
       fromFree: previous?.free ?? true,
       shot: next,
     };
     lastShot.current = next;
 
-    /*
-     * Пределы приближения расширяются сразу, а не по приезде: стеллаж дальше
-     * стола, и старый maxDistance зажал бы камеру на полпути.
-     */
-    controls.minDistance = Math.min(controls.minDistance, next.minDistance);
-    controls.maxDistance = Math.max(controls.maxDistance, next.maxDistance);
-    controls.enabled = false;
+    if (controls) controls.enabled = false;
   }, [store, view, flatX, flatY]);
 
   useFrame((state, delta) => {
@@ -193,6 +199,15 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
      * полёта оказывается совсем не тем, из которого начинали.
      */
     if (move) {
+      /*
+       * Пределы приближения расширяются на время переезда, а не по приезде:
+       * стеллаж дальше стола, и старый maxDistance зажал бы камеру на полпути.
+       * Каждый кадр — потому что в момент назначения ракурса контролов может
+       * ещё не быть (см. эффект выше).
+       */
+      controls.minDistance = Math.min(controls.minDistance, move.shot.minDistance);
+      controls.maxDistance = Math.max(controls.maxDistance, move.shot.maxDistance);
+
       move.t = Math.min(1, move.t + delta / move.span);
       const k = easeInOutCubic(move.t);
       state.camera.position.lerpVectors(move.from, move.shot.position, k);

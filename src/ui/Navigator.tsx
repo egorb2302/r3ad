@@ -147,7 +147,7 @@ export function Navigator() {
               >
                 <span
                   className="h-[18px] w-[3px] shrink-0 rounded-sm"
-                  style={{ backgroundColor: volume.palette.cloth }}
+                  style={{ backgroundColor: volume.theme.cover.color }}
                 />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[11.5px] text-ash-100" title={volume.title}>

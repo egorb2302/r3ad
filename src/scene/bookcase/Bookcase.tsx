@@ -11,19 +11,31 @@
  * их шаг заявлены настройкой (SPEC §8), и разойдись здесь арифметика с той, по
  * которой считается расстановка, книги встали бы сквозь доски.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
+import type { WoodSpecies } from '@/core/theme';
 import { woodTexture } from './wood';
 import { CASE, CASE_HEIGHT, CASE_WIDTH, CASE_Z } from './caseGeometry';
 
-export function Bookcase() {
-  const { boardMap, sideMap, backMap } = useMemo(
+export function Bookcase({ species }: { species: WoodSpecies }) {
+  const maps = useMemo(
     () => ({
-      boardMap: woodTexture(CASE.innerWidth / 24, CASE.depth / 24),
-      sideMap: woodTexture(CASE.depth / 24, CASE_HEIGHT / 24),
-      backMap: woodTexture(CASE.innerWidth / 30, CASE_HEIGHT / 30),
+      boardMap: woodTexture(CASE.innerWidth / 24, CASE.depth / 24, species),
+      sideMap: woodTexture(CASE.depth / 24, CASE_HEIGHT / 24, species),
+      backMap: woodTexture(CASE.innerWidth / 30, CASE_HEIGHT / 30, species),
     }),
-    [],
+    [species],
   );
+
+  /*
+   * Клоны текстур живут ровно столько, сколько порода: `repeat` хранится в
+   * самой текстуре, поэтому у каждой доски он свой, и смена породы означает три
+   * новых клона. Без уборки перебор четырёх пород ползунком оставлял бы их все.
+   */
+  useEffect(() => () => {
+    for (const map of Object.values(maps)) map.dispose();
+  }, [maps]);
+
+  const { boardMap, sideMap, backMap } = maps;
 
   const sideX = CASE.innerWidth / 2 + CASE.board / 2;
 
@@ -52,7 +64,8 @@ export function Bookcase() {
       {/* Задняя стенка: тонкая фанера, в тени, за книгами почти не видна */}
       <mesh position={[0, CASE_HEIGHT / 2, -CASE.depth / 2 + CASE.back / 2]} receiveShadow>
         <boxGeometry args={[CASE.innerWidth, CASE_HEIGHT, CASE.back]} />
-        <meshStandardMaterial map={backMap} color="#7a5c42" roughness={0.92} metalness={0} />
+        {/* Серым, а не тёплым: подкраска доски выдала бы берёзу за морёный дуб. */}
+        <meshStandardMaterial map={backMap} color="#8f8f8f" roughness={0.92} metalness={0} />
       </mesh>
 
       {/*
@@ -69,7 +82,7 @@ export function Bookcase() {
       {/* Цоколь: стеллаж не висит в воздухе */}
       <mesh position={[0, CASE.board / 4, CASE.depth / 2 - 1]}>
         <boxGeometry args={[CASE_WIDTH, CASE.board / 2, 2]} />
-        <meshStandardMaterial map={boardMap} color="#8a6b4e" roughness={0.9} />
+        <meshStandardMaterial map={boardMap} color="#c9c9c9" roughness={0.9} />
       </mesh>
     </group>
   );

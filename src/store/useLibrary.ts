@@ -17,7 +17,8 @@
 import { create } from 'zustand';
 import type { ContentDoc } from '@/core/content';
 import { demoLibrary } from '@/core/library/demo';
-import { dominantColor, paletteFor, paletteFromColor } from '@/core/library/palette';
+import { dominantColor } from '@/core/library/palette';
+import { themeFor, themeFromCover, type BookTheme } from '@/core/theme';
 import { volumeFromDoc, type VolumeRecord, type VolumeSource } from '@/core/library/volume';
 import { typographyKey } from '@/core/paginate/paginate';
 import { startFlight, stopFlight, type FlightKind } from '@/scene/flight';
@@ -53,6 +54,7 @@ interface LibraryState {
   arrived: () => void;
   syncDesk: (doc: ContentDoc, source: VolumeSource) => void;
   noteComposed: (id: string, pages: number, key: string) => void;
+  dress: (id: string, theme: BookTheme) => void;
 }
 
 /** Запись для книги, лежащей на столе. */
@@ -189,7 +191,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const known = get().volumes.find((v) => v.id === doc.id) ?? previous;
     const record: VolumeRecord = {
       ...deskRecord(doc, source),
-      palette: known?.id === doc.id ? known.palette : paletteFor(`${doc.title}|${doc.author}`),
+      theme: known?.id === doc.id ? known.theme : themeFor(`${doc.title}|${doc.author}`),
     };
 
     /*
@@ -201,12 +203,33 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const returning = previous?.kind === 'journal' && previous.id !== doc.id ? [previous] : [];
     set({ desk: record, volumes: [...get().volumes, ...returning] });
 
-    if (!doc.cover) return;
+    /*
+     * Обложка уточняет цвет только у книги, которую ещё не переодевали руками:
+     * иначе выбранный человеком переплёт перебивался бы доминантой обложки
+     * через полсекунды после выбора — молча и без всякого повода.
+     */
+    if (!doc.cover || known?.id === doc.id) return;
     void dominantColor(doc.cover).then((hsl) => {
       if (!hsl) return;
       const desk = get().desk;
       if (desk?.id !== doc.id) return;
-      set({ desk: { ...desk, palette: paletteFromColor(hsl) } });
+      set({ desk: { ...desk, theme: themeFromCover(hsl, `${doc.title}|${doc.author}`) } });
+    });
+  },
+
+  /**
+   * Переодеть том.
+   *
+   * Патчем по идентификатору, а не «правь запись на столе»: книга, которую
+   * перекрашивают, может в этот момент лететь на полку, и тогда её запись есть
+   * и в ряду, и на столе (см. `shelve`). Обе обязаны обновиться разом — иначе
+   * приземлившийся том окажется прежнего цвета.
+   */
+  dress: (id, theme) => {
+    const patch = (v: VolumeRecord) => (v.id === id ? { ...v, theme } : v);
+    set({
+      volumes: get().volumes.map(patch),
+      desk: get().desk ? patch(get().desk!) : null,
     });
   },
 

@@ -36,6 +36,7 @@ import { applyBundle, currentBundle } from './hydrate';
 import { useClips } from './useClips';
 import { useJournal } from './useJournal';
 import { useLibrary } from './useLibrary';
+import { useTheme } from './useTheme';
 
 export interface ShareLink {
   id: string;
@@ -334,7 +335,9 @@ function origin(): string {
  */
 async function compactLink(title: string): Promise<string | null> {
   try {
-    const payload = await packShelf(shelfFromVolumes(title, useLibrary.getState().volumes));
+    const payload = await packShelf(
+      shelfFromVolumes(title, useLibrary.getState().volumes, useTheme.getState().scene),
+    );
     if (payload.length > COMPACT_MAX) return null;
     return `${origin()}/?s=${payload}`;
   } catch {
@@ -389,6 +392,8 @@ export async function adoptShelfFromUrl(payload: string): Promise<number> {
   pausePersistence();
 
   useLibrary.setState({ volumes, desk: null, view: 'case', flight: null, armed: null });
+  // Свет тоже приехал в адресе: полка обязана выглядеть так, как её отдавали.
+  useTheme.setState({ scene: shelf.scene });
   useJournal.setState({ openId: null, flatPage: null });
   useShare.setState({ shared: true });
   return volumes.length;
@@ -495,6 +500,9 @@ if (typeof window !== 'undefined') {
   });
   useClips.subscribe((state, previous) => {
     if (state.clips !== previous.clips) schedule();
+  });
+  useTheme.subscribe((state, previous) => {
+    if (state.scene !== previous.scene) schedule();
   });
 }
 

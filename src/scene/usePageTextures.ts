@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { PageRenderer } from '@/core/render/pageRenderer';
+import { PAPERS, type PaperTint } from '@/core/theme';
 import { releaseCanvas } from '@/core/rasterize/svgRasterizer';
 import { useBook, type RenderStat } from '@/store/useBook';
 
@@ -132,7 +133,7 @@ export interface PageTextures {
 const clean = (list: (number | null | undefined)[]) =>
   list.filter((i): i is number => typeof i === 'number' && i >= 0);
 
-export function usePageTextures(): PageTextures {
+export function usePageTextures(tint: PaperTint): PageTextures {
   const pagination = useBook((s) => s.pagination);
   const metrics = useBook((s) => s.metrics);
   const typography = useBook((s) => s.typography);
@@ -145,20 +146,47 @@ export function usePageTextures(): PageTextures {
   // перерисовать ровно тогда, когда очередная встала в кэш.
   const [, bump] = useState(0);
 
-  // Смена разбивки означает, что все прежние текстуры относятся к другой вёрстке.
+  /**
+   * Что сцена просила последним.
+   *
+   * Нужно новому кэшу, а не старому. Заказ приходит от эффекта во Viewport, и
+   * тот перезапускается по развороту — но кэш пересобирается и от того, что
+   * разворота не касается: сменился тон бумаги, а он запечён в растр. Тогда
+   * заказывать было бы некому: разворот тот же, эффект спит, новый кэш пуст, а
+   * на странице висит ссылка на текстуру, выброшенную вместе со старым кэшем, —
+   * то есть чёрный прямоугольник. Пусть новый кэш сам печатает то, что просили
+   * у предыдущего.
+   */
+  const wanted = useRef<{ needed: number[]; soon: number[] }>({ needed: [], soon: [] });
+
+  /*
+   * Смена разбивки означает, что все прежние текстуры относятся к другой
+   * вёрстке. Тон бумаги — тот же случай: он запечён в растр, и страница,
+   * напечатанная на кремовой, на состаренной полке была бы заплаткой.
+   */
   useEffect(() => {
     if (!pagination) return;
 
-    const renderer = new PageRenderer(chapters, pagination, metrics, typography);
+    const renderer = new PageRenderer(chapters, pagination, metrics, typography, PAPERS[tint]);
     const cache = new TextureCache(renderer, noteRender, setLiveTextures);
     cacheRef.current = cache;
 
+    // Печатаем то, что было заказано у прежнего кэша. Пробуждение — то же, что
+    // и в `request`: текстура приезжает асинхронно, и сцену будит её приезд.
+    let alive = true;
+    for (const index of wanted.current.needed) {
+      void cache.request(index).then(() => {
+        if (alive) bump((v) => v + 1);
+      });
+    }
+
     return () => {
+      alive = false;
       cache.dispose();
       renderer.destroy();
       cacheRef.current = null;
     };
-  }, [pagination, metrics, typography, chapters, noteRender, setLiveTextures]);
+  }, [pagination, metrics, typography, chapters, tint, noteRender, setLiveTextures]);
 
   const get = useCallback((index: number | null | undefined) => {
     if (typeof index !== 'number' || index < 0) return null;
@@ -169,6 +197,8 @@ export function usePageTextures(): PageTextures {
     (needed: (number | null | undefined)[], soon: (number | null | undefined)[] = []) => {
       const cache = cacheRef.current;
       if (!cache) return;
+
+      wanted.current = { needed: clean(needed), soon: clean(soon) };
 
       let alive = true;
       const wake = () => {

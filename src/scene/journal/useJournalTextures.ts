@@ -18,7 +18,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { paintPage } from '@/core/journal/paint';
 import { imageFor, imageSize } from '@/core/assets';
-import { PAGE_W, type PageDoc } from '@/core/journal/types';
+import { PAGE_W, type JournalDoc, type PageDoc } from '@/core/journal/types';
+import type { PaperTint } from '@/core/theme';
 import { useBook } from '@/store/useBook';
 import { useJournal } from '@/store/useJournal';
 import { clippingFor } from '@/store/useClips';
@@ -45,7 +46,12 @@ function release(entry: Entry) {
   entry.canvas.height = 0;
 }
 
-function paintTexture(page: PageDoc, widthPx: number, heightPx: number): Entry {
+function paintTexture(
+  page: PageDoc,
+  widthPx: number,
+  heightPx: number,
+  paper: { tint: PaperTint; rule?: number },
+): Entry {
   const canvas = document.createElement('canvas');
   canvas.width = widthPx;
   canvas.height = heightPx;
@@ -54,7 +60,13 @@ function paintTexture(page: PageDoc, widthPx: number, heightPx: number): Entry {
   // Холст переводится в миллиметры страницы: документ не знает про пиксели.
   const scale = widthPx / PAGE_W;
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  paintPage(ctx, page, { image: imageFor, size: imageSize, clipping: clippingFor });
+  paintPage(ctx, page, {
+    image: imageFor,
+    size: imageSize,
+    clipping: clippingFor,
+    tint: paper.tint,
+    rule: paper.rule,
+  });
 
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -67,10 +79,11 @@ function paintTexture(page: PageDoc, widthPx: number, heightPx: number): Entry {
   return { texture, canvas };
 }
 
-export function useJournalTextures(): PageTextures {
+export function useJournalTextures(tint: PaperTint): PageTextures {
   const openId = useJournal((s) => s.openId);
   const docs = useJournal((s) => s.docs);
-  const journal = openId ? docs[openId] ?? null : null;
+  const journal: JournalDoc | null = openId ? docs[openId] ?? null : null;
+  const rule = journal?.ruleMm;
 
   const widthPx = useBook((s) => s.metrics.pageWidthPx);
   const heightPx = useBook((s) => s.metrics.pageHeightPx);
@@ -78,14 +91,18 @@ export function useJournalTextures(): PageTextures {
   const cache = useRef(new Map<PageDoc, Entry>());
   const [, bump] = useState(0);
 
-  // Смена разрешения обесценивает всё напечатанное: масштаб в текстурах разный.
+  /*
+   * Смена разрешения обесценивает всё напечатанное: масштаб в текстурах разный.
+   * Бумага и разлиновка — то же самое: они запечены в холст, а ключ кэша —
+   * объект страницы, который от смены тона не меняется.
+   */
   useEffect(() => {
     const live = cache.current;
     return () => {
       for (const entry of live.values()) release(entry);
       live.clear();
     };
-  }, [widthPx, heightPx]);
+  }, [widthPx, heightPx, tint, rule]);
 
   const pageAt = useCallback(
     (index: number | null | undefined): PageDoc | null => {
@@ -112,7 +129,7 @@ export function useJournalTextures(): PageTextures {
       for (const index of needed) {
         const page = pageAt(index);
         if (!page || cache.current.has(page)) continue;
-        cache.current.set(page, paintTexture(page, widthPx, heightPx));
+        cache.current.set(page, paintTexture(page, widthPx, heightPx, { tint, rule }));
         painted = true;
       }
 
@@ -126,7 +143,7 @@ export function useJournalTextures(): PageTextures {
 
       if (painted) bump((v) => v + 1);
     },
-    [heightPx, journal, pageAt, widthPx],
+    [heightPx, journal, pageAt, rule, tint, widthPx],
   );
 
   return { get, request };

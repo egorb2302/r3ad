@@ -24,9 +24,9 @@
  * месте, без сетевой загрузки — важно и для оффлайна, и чтобы первый кадр не
  * ждал мегабайтную карту.
  */
-import { Suspense, useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
-import { ContactShadows, Environment, Lightformer, OrbitControls } from '@react-three/drei';
+import { ContactShadows, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { Book } from './Book';
 import { Leaf } from './Leaf';
@@ -42,13 +42,15 @@ import { CameraRig } from './camera/CameraRig';
 import { FlatProbe } from './journal/FlatProbe';
 import { useJournalTextures } from './journal/useJournalTextures';
 import { DevHandle } from './DevHandle';
+import { Lighting, shadowLook } from './lighting';
 import { layoutShelves } from '@/core/library/shelfLayout';
-import { paletteFor } from '@/core/library/palette';
+import { themeFor } from '@/core/theme';
 import { volumeExtent } from '@/core/library/volume';
 import { typographyKey } from '@/core/paginate/paginate';
 import { lastSpread, mm } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
+import { useTheme } from '@/store/useTheme';
 import { spreadOf, useJournal } from '@/store/useJournal';
 import { usePageTextures } from './usePageTextures';
 
@@ -64,8 +66,8 @@ function Desk() {
   );
 }
 
-/** Цвет книги, у которой ещё нет записи в библиотеке: между сменой тома и полётом. */
-const FALLBACK_PALETTE = paletteFor('r3ad');
+/** Внешность книги, у которой ещё нет записи в библиотеке: между сменой тома и полётом. */
+const FALLBACK_THEME = themeFor('r3ad');
 
 export function Viewport() {
   const deskSheets = useBook((s) => s.sheets);
@@ -90,14 +92,24 @@ export function Viewport() {
   const arrived = useLibrary((s) => s.arrived);
 
   const flatPage = useJournal((s) => s.flatPage);
+  const scene = useTheme((s) => s.scene);
+  const shadow = shadowLook(scene);
+
+  /*
+   * Одетая книга — та, что на столе, а во время полёта та, что летит: стол в
+   * эти секунды уже пуст, а показывать надо всё ещё её бумагу и её переплёт.
+   * Читается до текстур: тон бумаги запечён в растр страницы.
+   */
+  const dressed = desk ?? volumes.find((v) => v.id === flying?.id) ?? null;
+  const theme = dressed?.theme ?? FALLBACK_THEME;
 
   /*
    * Два источника текстур разворота — том и тетрадь. Оба хука зовутся всегда:
    * бездействующий не печатает ничего, а условный вызов хука невозможен. Кто
    * из них показывается, решает то, что лежит на столе.
    */
-  const printed = usePageTextures();
-  const written = useJournalTextures();
+  const printed = usePageTextures(theme.paper.tint);
+  const written = useJournalTextures(theme.paper.tint);
   const journalOnDesk = desk?.kind === 'journal';
   const pages = journalOnDesk ? written : printed;
 
@@ -123,7 +135,6 @@ export function Viewport() {
 
   const flyingVolume = flying ? byId.get(flying.id) ?? desk : null;
   const flyingPlacement = flying ? layout.byId.get(flying.id) ?? null : null;
-  const palette = desk?.palette ?? flyingVolume?.palette ?? FALLBACK_PALETTE;
 
   const sheets = deskSheets;
   const pageCount = deskPages;
@@ -226,7 +237,10 @@ export function Viewport() {
           x: side === 'right' ? GUTTER + TRIM_W / 2 : -(GUTTER + TRIM_W / 2),
           y:
             COVER_T +
-            blockThickness(side === 'right' ? spread.rightSheets : spread.leftSheets) +
+            blockThickness(
+              side === 'right' ? spread.rightSheets : spread.leftSheets,
+              theme.paper.gsm,
+            ) +
             0.004,
         }
       : null;
@@ -237,35 +251,11 @@ export function Viewport() {
       gl={{ antialias: true }}
       camera={{ position: [0, 42, 50], fov: 30, near: 0.5, far: 500 }}
     >
-      <color attach="background" args={['#14100d']} />
-      {/*
-        Туман растянут до стеллажа: он стоит в двух метрах от стола, и прежняя
-        дальность в 240 съедала бы полку целиком, стоило камере отъехать.
-      */}
-      <fog attach="fog" args={['#14100d', 150, 520]} />
-
-      <ambientLight intensity={0.5} color="#ffeedd" />
-
-      {/* Настольная лампа слева-сверху — отсюда основная светотень на обрезе */}
-      <directionalLight position={[-26, 40, 20]} intensity={2.1} color="#ffd9a8" />
-      {/* Холодная подсветка справа, чтобы тени не проваливались в чёрное */}
-      <directionalLight position={[30, 24, -18]} intensity={0.45} color="#8fb2d8" />
-
-      {/*
-        Собственная граница Suspense. Environment подвешивается, пока собирает
-        карту окружения, и без этой границы вместе с ним подвисает вся сцена —
-        включая книгу и хук, который заказывает текстуры страниц.
-      */}
-      <Suspense fallback={null}>
-        <Environment resolution={256}>
-          <Lightformer intensity={2.4} position={[-10, 12, 6]} scale={[14, 14, 1]} color="#ffe2bb" />
-          <Lightformer intensity={0.8} position={[12, 8, -8]} scale={[10, 10, 1]} color="#a9c6e8" />
-          <Lightformer intensity={0.5} form="ring" position={[0, 16, 0]} scale={[20, 20, 1]} />
-        </Environment>
-      </Suspense>
+      {/* Свет, фон и туман — пресетом (см. scene/lighting). */}
+      <Lighting scene={scene} />
 
       <Desk />
-      <Bookcase />
+      <Bookcase species={scene.wood} />
 
       <Spines
         volumes={byId}
@@ -295,7 +285,9 @@ export function Viewport() {
           rightSheets={spread.rightSheets}
           leftPage={pages.get(spread.leftPage)}
           rightPage={pages.get(spread.rightPage)}
-          palette={palette}
+          theme={theme}
+          title={dressed?.title ?? ''}
+          author={dressed?.author ?? ''}
         />
       ) : null}
 
@@ -306,6 +298,8 @@ export function Viewport() {
           back={pages.get(spread.back)}
           leftSheets={spread.leftSheets}
           rightSheets={spread.rightSheets}
+          tint={theme.paper.tint}
+          gsm={theme.paper.gsm}
           onSettled={onSettled}
         />
       ) : null}
@@ -321,14 +315,15 @@ export function Viewport() {
       />
       <DevHandle />
 
+      {/* Единственная тень в сцене: контактная под книгой. Её задаёт тема. */}
       <ContactShadows
         position={[0, 0.003, 0]}
-        opacity={0.55}
+        opacity={shadow.opacity}
         scale={80}
-        blur={2.4}
+        blur={shadow.blur}
         far={8}
         resolution={512}
-        color="#000000"
+        color={shadow.color}
       />
 
       {/* Пределы приближения и цель ведёт CameraRig: у стола и у полки они разные */}

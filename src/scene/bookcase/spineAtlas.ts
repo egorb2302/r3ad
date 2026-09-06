@@ -21,7 +21,9 @@
  * то есть всё, из чего корешок узнаётся, а не только буквы.
  */
 import * as THREE from 'three';
+import { paintGrain, paintWear } from '@/core/library/grain';
 import type { VolumeRecord } from '@/core/library/volume';
+import { paletteOf, PAPERS, stamped, type BookTheme } from '@/core/theme';
 import { VOLUME_HEIGHT } from './caseGeometry';
 
 const ATLAS = 2048;
@@ -70,15 +72,6 @@ interface Slot {
   key: string;
 }
 
-/** Детерминированный шум: корешок обязан выглядеть одинаково между перезапусками. */
-function noise(seed: number) {
-  let a = seed >>> 0;
-  return () => {
-    a = (a * 1664525 + 1013904223) >>> 0;
-    return a / 4294967296;
-  };
-}
-
 function cellOf(index: number): AtlasCell {
   const col = index % COLS;
   const row = Math.floor(index / COLS);
@@ -115,7 +108,12 @@ class SpineAtlas {
   /** Клетка под корешок этого тома при этой толщине. Рисуется по требованию. */
   cellFor(volume: VolumeRecord, thickness: number): AtlasCell {
     const quantized = Math.max(THICKNESS_STEP, Math.round(thickness / THICKNESS_STEP) * THICKNESS_STEP);
-    const key = `${volume.title}|${volume.author}|${volume.palette.cloth}|${quantized.toFixed(2)}`;
+    /*
+     * В ключ входит вся тема целиком, а не один цвет: с M6 корешок меняется и
+     * от материала, и от тиснения, и от потёртости, и от краски среза. Дешевле
+     * сравнить полсотни знаков, чем однажды не перерисовать клетку.
+     */
+    const key = `${volume.title}|${volume.author}|${JSON.stringify(volume.theme)}|${quantized.toFixed(2)}`;
 
     const known = this.slots.get(volume.id);
     this.touch(volume.id);
@@ -166,17 +164,20 @@ class SpineAtlas {
     const x0 = col * CELL_W;
     const y0 = row * CELL_H;
 
-    const { cloth, panel, foil, head } = volume.palette;
+    const theme = volume.theme;
+    const { cloth, panel, foil, head } = paletteOf(theme);
 
     ctx.save();
     ctx.beginPath();
     ctx.rect(x0, y0, CELL_W, CELL_H);
     ctx.clip();
 
-    // Поля: слева ткань крышек, справа бумага обреза.
+    // Поля: слева ткань крышек, справа обрез. Обрез — не всегда бумага: у
+    // крашеного и золочёного тома его видно с полки, и красить его надо там же,
+    // где и всё остальное, иначе книга на полке и книга на столе разойдутся.
     ctx.fillStyle = cloth;
     ctx.fillRect(x0, y0, CELL_W, CELL_H);
-    ctx.fillStyle = '#e6ddc9';
+    ctx.fillStyle = edgeSwatch(theme);
     ctx.fillRect(x0 + CELL_W * FACE_U1, y0, CELL_W * (1 - FACE_U1), CELL_H);
 
     // Дальше — координаты корешка: x поперёк, y от головки к хвосту.
@@ -191,27 +192,27 @@ class SpineAtlas {
     ctx.fillStyle = cloth;
     ctx.fillRect(0, 0, T, H);
 
-    this.paintCloth(T, H, volume);
+    /*
+     * Фактура — та же функция, что печатает крышку тома на столе (core/grain).
+     * Один рисунок на два масштаба: иначе книга, снятая с полки, оказывалась бы
+     * из другого материала, чем корешок, который на неё показывал.
+     */
+    paintGrain(this.ctx, {
+      material: theme.cover.material,
+      w: T,
+      h: H,
+      // Единица координат корешка — десятая доля миллиметра (см. U).
+      perMm: 10,
+      seed: volume.charCount + volume.title.length * 7919,
+    });
+
     this.paintBands(T, H, head);
     this.paintPanel(T, H, panel, foil);
-    this.paintText(T, H, volume, foil);
+    if (stamped(theme)) this.paintText(T, H, volume, foil);
+    paintWear(this.ctx, T, H, theme.cover.wear, volume.title.length * 131 + 7);
     this.paintRelief(T, H);
 
     ctx.restore();
-  }
-
-  /** Ткань: продольная фактура переплётного полотна. */
-  private paintCloth(T: number, H: number, volume: VolumeRecord) {
-    const ctx = this.ctx;
-    const rand = noise(volume.charCount + volume.title.length * 7919);
-
-    const lines = Math.max(6, Math.round(T / 14));
-    for (let i = 0; i < lines; i++) {
-      const x = (i + rand() * 0.7) * (T / lines);
-      ctx.fillStyle = `rgba(0,0,0,${0.02 + rand() * 0.05})`;
-      ctx.fillRect(x, 0, Math.max(1, T / 160), H);
-    }
-
   }
 
   /** Каптал у головки и хвоста — полосатая тесьма, которой закрыт край блока. */
@@ -371,6 +372,21 @@ let shared: SpineAtlas | null = null;
 export function spineAtlas(): SpineAtlas {
   shared ??= new SpineAtlas();
   return shared;
+}
+
+/**
+ * Цвет граней обреза для развёртки закрытого тома.
+ *
+ * Одна точка карты на три грани — головку, хвост и передний обрез, — поэтому
+ * рисунка тут быть не может, только краска. Мрамор с полки и не разглядеть:
+ * корешок занимает два десятка пикселей, и разводы на нём превратились бы в
+ * грязь. Берём преобладающий тон — он и есть то, что видно издали.
+ */
+function edgeSwatch(theme: BookTheme): string {
+  const { edge, edgeColor, tint } = theme.paper;
+  if (edge === 'gilded') return '#c9a24a';
+  if (edge === 'sprayed' || edge === 'marbled') return edgeColor;
+  return PAPERS[tint].edge;
 }
 
 export type { SpineAtlas };

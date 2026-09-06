@@ -1,21 +1,45 @@
 'use client';
 
 /**
- * Дерево стеллажа.
+ * Дерево стеллажа: четыре породы.
  *
  * Процедурное по той же причине, что и всё остальное в проекте: ассетов нет, а
  * доска обязана выглядеть доской. Рисунок — продольные волокна с редкими
  * тёмными прожилками и мягкими «катедралами» там, где пила прошла через
  * годовое кольцо. Никакого шума общего назначения: у случайных пятен нет
  * направления, а у дерева оно есть, и именно по нему доска и опознаётся.
+ *
+ * Порода (SPEC §8) — это не «цвет доски». Дуб отличается от берёзы не только
+ * тоном, но и контрастом волокна: у светлых пород рисунок мягче, у чёрных он
+ * почти не читается, и покрасить одну текстуру в четыре цвета значило бы
+ * выдать берёзу за морёный дуб. Поэтому у каждой породы свой холст, и рисунок
+ * на нём считается со своим разбросом.
  */
 import * as THREE from 'three';
+import type { WoodSpecies } from '@/core/theme';
 
 const SIZE = 512;
 
-let cached: THREE.CanvasTexture | null = null;
+interface Timber {
+  ground: string;
+  /** Тёмная прожилка и светлое волокно: между ними и лежит весь характер породы. */
+  dark: [number, number, number];
+  light: [number, number, number];
+  /** Сила рисунка. У чёрного дерева волокно почти не видно — оно и в жизни такое. */
+  contrast: number;
+}
 
-function draw(): HTMLCanvasElement {
+const TIMBER: Record<WoodSpecies, Timber> = {
+  oak: { ground: '#9a7548', dark: [92, 64, 34], light: [214, 184, 138], contrast: 1 },
+  walnut: { ground: '#6a4a30', dark: [48, 30, 18], light: [178, 138, 96], contrast: 1 },
+  birch: { ground: '#c4a476', dark: [150, 118, 80], light: [236, 218, 186], contrast: 0.7 },
+  ebony: { ground: '#2c2724', dark: [12, 10, 9], light: [86, 78, 68], contrast: 0.55 },
+};
+
+const cached = new Map<WoodSpecies, THREE.CanvasTexture>();
+
+function draw(species: WoodSpecies): HTMLCanvasElement {
+  const timber = TIMBER[species];
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;
@@ -27,16 +51,19 @@ function draw(): HTMLCanvasElement {
     return seed / 4294967296;
   };
 
-  ctx.fillStyle = '#6a4a30';
+  ctx.fillStyle = timber.ground;
   ctx.fillRect(0, 0, SIZE, SIZE);
+
+  const ink = (channel: [number, number, number], alpha: number) =>
+    `rgba(${channel[0]},${channel[1]},${channel[2]},${alpha * timber.contrast})`;
 
   // Волокна вдоль доски.
   for (let i = 0; i < 420; i++) {
     const y = rand() * SIZE;
     const dark = rand() < 0.5;
     ctx.strokeStyle = dark
-      ? `rgba(48,30,18,${0.05 + rand() * 0.16})`
-      : `rgba(178,138,96,${0.03 + rand() * 0.1})`;
+      ? ink(timber.dark, 0.05 + rand() * 0.16)
+      : ink(timber.light, 0.03 + rand() * 0.1);
     ctx.lineWidth = 0.6 + rand() * 2.2;
 
     ctx.beginPath();
@@ -53,7 +80,7 @@ function draw(): HTMLCanvasElement {
     const cy = rand() * SIZE;
     const height = 26 + rand() * 60;
     for (let k = 0; k < 7; k++) {
-      ctx.strokeStyle = `rgba(44,27,15,${0.16 - k * 0.02})`;
+      ctx.strokeStyle = ink(timber.dark, 0.16 - k * 0.02);
       ctx.lineWidth = 1 + rand();
       ctx.beginPath();
       ctx.ellipse(cx, cy, 10 + k * 9, height + k * 7, 0, 0, Math.PI * 2);
@@ -64,14 +91,16 @@ function draw(): HTMLCanvasElement {
   return canvas;
 }
 
-function base(): THREE.CanvasTexture {
-  if (cached) return cached;
-  const texture = new THREE.CanvasTexture(draw());
+function base(species: WoodSpecies): THREE.CanvasTexture {
+  const known = cached.get(species);
+  if (known) return known;
+
+  const texture = new THREE.CanvasTexture(draw(species));
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 8;
-  cached = texture;
+  cached.set(species, texture);
   return texture;
 }
 
@@ -81,8 +110,12 @@ function base(): THREE.CanvasTexture {
  * Клон нужен из-за repeat: он живёт в текстуре, а досок в стеллаже семь и они
  * разной длины. Без клона у всех был бы масштаб последней.
  */
-export function woodTexture(repeatX: number, repeatY: number): THREE.Texture {
-  const texture = base().clone();
+export function woodTexture(
+  repeatX: number,
+  repeatY: number,
+  species: WoodSpecies,
+): THREE.Texture {
+  const texture = base(species).clone();
   texture.needsUpdate = true;
   texture.repeat.set(repeatX, repeatY);
   return texture;

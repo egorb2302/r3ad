@@ -17,13 +17,16 @@
  * тратит на её кавычки и имена полей ровно тот бюджет, ради которого всё
  * затевается: те же сорок томов в JSON занимают втрое больше ещё до сжатия.
  */
+import { hashString } from '../library/palette';
 import {
-  hashString,
-  hexToHsl,
-  paletteFor,
-  paletteFromColor,
-  type SpinePalette,
-} from '../library/palette';
+  decodeScene,
+  decodeTheme,
+  encodeScene,
+  encodeTheme,
+  isDerived,
+  themeFor,
+  type SceneTheme,
+} from '../theme';
 import { optionsForExtent } from '../text/synthetic';
 import type { VolumeRecord } from '../library/volume';
 import { fromBase64Url, toBase64Url } from './lock';
@@ -38,20 +41,31 @@ const ROW = '\x1e';
  * Что помещается в адрес.
  *
  * Только внешний вид, и даже он — не весь. Обложка, из доминанты которой взят
- * цвет корешка, в полтора килобайта не влезает никак, поэтому цвет едет
- * готовым — но лишь у тех томов, где он отличается от выводимого из названия.
- * У полки, набранной синтетикой и демо-каталогом, это ноль лишних байт.
+ * цвет переплёта, в полтора килобайта не влезает никак, поэтому едет уже
+ * готовая тема — но лишь у тех томов, где она отличается от выводимой из
+ * названия. У полки, набранной синтетикой и демо-каталогом, это ноль лишних
+ * байт; у полки, которую перекрасили руками, — тринадцать знаков на том, и
+ * ссылка честно от этого длиннеет.
+ *
+ * **Уточнено на M6.** Раньше здесь ехал один цвет, теперь тема целиком:
+ * материал, тиснение, бумага, обрез. Обошлось это в семь знаков на
+ * перекрашенный том, и другого выхода не было — полка, у которой на чужом
+ * экране пропала кожа и золочёный обрез, обещания «выглядит так же» не
+ * выполняет.
  */
 interface CompactVolume {
   kind: 'volume' | 'journal';
   title: string;
   author: string;
   chars: number;
-  cloth: string;
+  /** Упакованная тема или пустая строка, если она выводится из названия. */
+  theme: string;
 }
 
 export interface CompactShelf {
   title: string;
+  /** Свет и порода дерева: четыре знака на всю полку. */
+  scene: SceneTheme;
   volumes: CompactVolume[];
 }
 
@@ -59,7 +73,8 @@ export interface CompactShelf {
 const clean = (text: string) => text.replace(/[\x1e\x1f]/g, ' ');
 
 export function encodeShelf(shelf: CompactShelf): string {
-  const rows = [clean(shelf.title)];
+  // Первая строка — заголовок полки и её сцена: они одни на всю ссылку.
+  const rows = [[clean(shelf.title), encodeScene(shelf.scene)].join(FIELD)];
 
   for (const volume of shelf.volumes) {
     rows.push(
@@ -68,7 +83,7 @@ export function encodeShelf(shelf: CompactShelf): string {
         clean(volume.title),
         clean(volume.author),
         String(Math.round(volume.chars)),
-        volume.cloth,
+        volume.theme,
       ].join(FIELD),
     );
   }
@@ -81,18 +96,19 @@ export function decodeShelf(text: string): CompactShelf {
   const volumes: CompactVolume[] = [];
 
   for (const row of rows.slice(1)) {
-    const [kind, title, author, chars, cloth] = row.split(FIELD);
+    const [kind, title, author, chars, theme] = row.split(FIELD);
     if (!title) continue;
     volumes.push({
       kind: kind === 'j' ? 'journal' : 'volume',
       title,
       author: author ?? '',
       chars: Number(chars) || 0,
-      cloth: cloth ?? '',
+      theme: theme ?? '',
     });
   }
 
-  return { title: rows[0] ?? 'A shelf', volumes };
+  const [title, scene] = (rows[0] ?? '').split(FIELD);
+  return { title: title || 'A shelf', scene: decodeScene(scene ?? ''), volumes };
 }
 
 /* ─── Сжатие ────────────────────────────────────────────────────────────── */
@@ -133,25 +149,28 @@ export async function unpackShelf(payload: string): Promise<CompactShelf> {
 
 /* ─── Мост к записям библиотеки ─────────────────────────────────────────── */
 
-export function shelfFromVolumes(title: string, volumes: VolumeRecord[]): CompactShelf {
+export function shelfFromVolumes(
+  title: string,
+  volumes: VolumeRecord[],
+  scene: SceneTheme,
+): CompactShelf {
   return {
     title,
+    scene,
     volumes: volumes.map((volume) => ({
       kind: volume.kind,
       title: volume.title,
       author: volume.author,
       chars: volume.charCount || estimatedChars(volume),
-      // Цвет пишем, только если он не выводится из названия: у книги с обложкой
-      // он взят из её доминанты, у остальных — из хэша, и повторять его в
-      // адресе значит платить за то, что и так посчитается.
-      cloth: sameAsDerived(volume) ? '' : volume.palette.cloth.replace('#', ''),
+      // Тему пишем, только если она не выводится из названия: у книги с
+      // обложкой цвет взят из её доминанты, у остальных — из хэша, и повторять
+      // в адресе то, что и так посчитается, значит платить за воздух.
+      theme: isDerived(volume.theme, seedOf(volume)) ? '' : encodeTheme(volume.theme),
     })),
   };
 }
 
-function sameAsDerived(volume: VolumeRecord): boolean {
-  return paletteFor(`${volume.title}|${volume.author}`).cloth === volume.palette.cloth;
-}
+const seedOf = (volume: { title: string; author: string }) => `${volume.title}|${volume.author}`;
 
 /** У тетради знаков нет — объём ей задают страницы. Для корешка их надо перевести. */
 function estimatedChars(volume: VolumeRecord): number {
@@ -171,9 +190,7 @@ function estimatedChars(volume: VolumeRecord): number {
 export function volumesFromShelf(shelf: CompactShelf): VolumeRecord[] {
   return shelf.volumes.map((row, index) => {
     const id = `shared-${String(index + 1).padStart(2, '0')}`;
-    const palette: SpinePalette = row.cloth
-      ? paletteFromColor(hexToHsl(`#${row.cloth}`))
-      : paletteFor(`${row.title}|${row.author}`);
+    const derived = themeFor(seedOf(row));
 
     return {
       id,
@@ -185,7 +202,7 @@ export function volumesFromShelf(shelf: CompactShelf): VolumeRecord[] {
       charCount: row.chars,
       pages: null,
       pagesKey: null,
-      palette,
+      theme: row.theme ? decodeTheme(row.theme, derived) : derived,
       source: {
         kind: 'synthetic' as const,
         options: optionsForExtent(row.chars, {

@@ -20,7 +20,8 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { attachCurl, leafShadowTexture, makeCurlUniforms, type CurlUniforms } from './materials/pageCurl';
 import { motion, stepMotion } from './turn';
-import { BLANK_PAGE, blockThickness, COVER_T, GUTTER, TRIM_H, TRIM_W } from './geometry';
+import type { PaperTint } from '@/core/theme';
+import { blankPage, blockThickness, COVER_T, GUTTER, TRIM_H, TRIM_W } from './geometry';
 
 /** Полная длина листа от оси корешка до внешнего обреза. */
 const REACH = GUTTER + TRIM_W;
@@ -34,11 +35,17 @@ export interface LeafProps {
   /** Листов в стопках, между которыми идёт переворот. Сам лист не в счёт. */
   leftSheets: number;
   rightSheets: number;
+  /**
+   * Бумага тома: тон и плотность. Лист обязан быть из той же пачки, что стопки
+   * под ним, — и по цвету, и по высоте, на которой он над ними висит.
+   */
+  tint: PaperTint;
+  gsm: number;
   /** Пружина успокоилась: аргумент — на каком краю. */
   onSettled: (target: number) => void;
 }
 
-export function Leaf({ front, back, leftSheets, rightSheets, onSettled }: LeafProps) {
+export function Leaf({ front, back, leftSheets, rightSheets, tint, gsm, onSettled }: LeafProps) {
   const group = useRef<THREE.Group>(null);
   const shadow = useRef<THREE.Group>(null);
   const shadowMaterial = useRef<THREE.MeshBasicMaterial>(null);
@@ -59,13 +66,13 @@ export function Leaf({ front, back, leftSheets, rightSheets, onSettled }: LeafPr
 
     // Оборот приезжает асинхронно и подставляется в кадре: лист может подняться
     // раньше, чем дорисуется его изнанка.
-    own.uBackMap.value = back ?? BLANK_PAGE;
+    own.uBackMap.value = back ?? blankPage(tint);
 
     const done = stepMotion(motion, delta);
     own.uT.value = motion.t;
 
-    const left = blockThickness(leftSheets);
-    const right = blockThickness(rightSheets);
+    const left = blockThickness(leftSheets, gsm);
+    const right = blockThickness(rightSheets, gsm);
 
     if (group.current) {
       /*
@@ -127,7 +134,7 @@ export function Leaf({ front, back, leftSheets, rightSheets, onSettled }: LeafPr
           <planeGeometry args={[TRIM_W, TRIM_H, 48, 10]} />
           <meshStandardMaterial
             ref={material}
-            map={front ?? BLANK_PAGE}
+            map={front ?? blankPage(tint)}
             side={THREE.DoubleSide}
             roughness={0.94}
             metalness={0}

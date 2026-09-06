@@ -8,7 +8,8 @@
  * не совпал бы с той страницей, которую он собой закрывает.
  */
 import * as THREE from 'three';
-import { mm, PHYS } from '@/core/units';
+import { PAPERS, type PaperTint } from '@/core/theme';
+import { DEFAULT_GSM, mm, PHYS, sheetMm } from '@/core/units';
 
 export const TRIM_W = mm(PHYS.trimWidthMm);
 export const TRIM_H = mm(PHYS.trimHeightMm);
@@ -23,11 +24,18 @@ export const COVER_H = TRIM_H + SQUARE * 2;
 /** Блок нулевой толщины вырождается в плоскость — в начале и в конце книги. */
 export const MIN_BLOCK = 0.004;
 
-export const PAPER = '#efe6d4';
+/** Бумага по умолчанию. Тон задаётся темой, но у сцены должен быть цвет и до неё. */
+export const PAPER = PAPERS.cream.block;
 
-/** Толщина блока в единицах сцены по числу листов. */
-export const blockThickness = (sheets: number) =>
-  Math.max(mm(sheets * PHYS.sheetThicknessMm), MIN_BLOCK);
+/**
+ * Толщина блока в единицах сцены по числу листов.
+ *
+ * Плотность бумаги входит сюда вторым аргументом, а не константой: с M6 она
+ * настраивается (SPEC §8), и это единственная настройка внешности, от которой
+ * книга физически толстеет.
+ */
+export const blockThickness = (sheets: number, gsm: number = DEFAULT_GSM) =>
+  Math.max(mm(sheets * sheetMm(gsm)), MIN_BLOCK);
 
 /**
  * Заглушка под текстуру страницы.
@@ -36,9 +44,18 @@ export const blockThickness = (sheets: number) =>
  * отрисована: если map появляется позже, three пересобирает шейдер, и первый
  * кадр после подстановки текстуры даёт заметную задержку. Один кремовый пиксель
  * стоит ничего и снимает вопрос.
+ *
+ * Пикселей теперь три — по одному на тон бумаги, — и держатся они в карте:
+ * заглушка живёт столько же, сколько страница, и пересоздавать её на каждое
+ * движение ползунка значило бы течь текстурами ровно там, где их меньше всего.
  */
-export const BLANK_PAGE = (() => {
-  const rgba = new THREE.Color(PAPER).convertLinearToSRGB();
+const blanks = new Map<PaperTint, THREE.DataTexture>();
+
+export function blankPage(tint: PaperTint = 'cream'): THREE.DataTexture {
+  const known = blanks.get(tint);
+  if (known) return known;
+
+  const rgba = new THREE.Color(PAPERS[tint].block).convertLinearToSRGB();
   const texture = new THREE.DataTexture(
     new Uint8Array([
       Math.round(rgba.r * 255),
@@ -51,5 +68,6 @@ export const BLANK_PAGE = (() => {
   );
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.needsUpdate = true;
+  blanks.set(tint, texture);
   return texture;
-})();
+}
