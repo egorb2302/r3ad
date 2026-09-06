@@ -31,8 +31,8 @@ import { paletteOf, PAPERS, type BookTheme } from '@/core/theme';
 import { coverGeometry, coverSurface } from './materials/cover';
 import { edgeSurface, edgeTextureFor } from './materials/edgeTexture';
 import { flight } from './flight';
+import { blankPage } from './blank';
 import {
-  blankPage,
   blockThickness,
   COVER_H,
   COVER_T,

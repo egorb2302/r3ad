@@ -1,51 +1,45 @@
 'use client';
 
 /**
- * Каркас воркспейса: навигатор слева, вьюпорт в центре, инспектор справа.
+ * Оболочка приложения: что запускается, что принимает файлы и что показывает
+ * книгу — сцена или плоский режим.
  *
  * Здесь же порядок запуска: сначала шрифты регистрируются в документе (иначе
  * композитор посчитает разбивку запасной гарнитурой и растр разойдётся с
  * вёрсткой), затем проба растеризатора, и только потом первая пагинация.
+ *
+ * До M7 всё это лежало вместе со сценой в одном файле. Разделение понадобилось,
+ * когда у книги появился второй вид: приём файла, подъём полки из базы,
+ * палитра команд и горячие клавиши общего назначения одинаковы в обоих
+ * режимах, а вьюпорт есть только в одном — и на машине без WebGL2 его не должно
+ * быть даже в загрузке.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import dynamic from 'next/dynamic';
-import { Navigator } from './Navigator';
-import { Inspector } from './Inspector';
-import { Topbar, Toolbar } from './Chrome';
-import { FlatEditor } from './journal/FlatEditor';
+import { SceneWorkspace } from './SceneWorkspace';
+import { PlainReader } from './plain/PlainReader';
+import { Palette } from './palette/Palette';
 import { useBook } from '@/store/useBook';
-import { useLibrary } from '@/store/useLibrary';
-import { useJournal, type Tool } from '@/store/useJournal';
+import { useJournal } from '@/store/useJournal';
 import { useClips } from '@/store/useClips';
 import { useShare, adoptShelfFromUrl, restoreLibrary } from '@/store/useShare';
+import { useShell } from '@/store/useShell';
 import { ShareDialog } from './share/ShareDialog';
 import { R3AD_EXTENSION } from '@/core/share/pack';
 import { useBoot } from './boot';
-
-// three.js не переживает серверный рендер — грузим вьюпорт только в браузере.
-const Viewport = dynamic(() => import('@/scene/Viewport').then((m) => m.Viewport), {
-  ssr: false,
-  loading: () => <div className="h-full w-full bg-ink-950" />,
-});
+import { useDevice } from './useDevice';
 
 export function Workspace() {
-  const [panelsHidden, setPanelsHidden] = useState(false);
   const [dropping, setDropping] = useState(false);
+
+  useDevice();
   const boot = useBoot();
 
-  const runPagination = useBook((s) => s.runPagination);
-  const status = useBook((s) => s.status);
-  const stage = useBook((s) => s.stage);
-  const error = useBook((s) => s.error);
-  const progress = useBook((s) => s.progress);
-  const requestTurn = useBook((s) => s.requestTurn);
-  const open = useBook((s) => s.open);
+  const mode = useShell((s) => s.mode);
+  const scene = useShell((s) => s.device.scene);
+  const texture = useShell((s) => s.device.texture);
 
-  const view = useLibrary((s) => s.view);
-  const setView = useLibrary((s) => s.setView);
-  const shelve = useLibrary((s) => s.shelve);
-  const deskKind = useLibrary((s) => s.desk?.kind ?? null);
-  const deskTint = useLibrary((s) => s.desk?.theme.paper.tint ?? 'cream');
+  const runPagination = useBook((s) => s.runPagination);
+  const open = useBook((s) => s.open);
 
   const flatPage = useJournal((s) => s.flatPage);
   const flat = flatPage !== null;
@@ -65,6 +59,11 @@ export function Workspace() {
    *
    * И только после этого — первая вёрстка: она считает то, что в итоге лежит на
    * столе, а не то, что лежало до подъёма из базы.
+   *
+   * Вёрстки может и не быть вовсе. На машине без WebGL2 книга показывается
+   * текстом, где страниц нет (§17), а разбивка — самая тяжёлая операция
+   * проекта: полминуты работы композитора ради числа, которое негде показать.
+   * Считаем её только там, где в сцену можно вернуться.
    */
   useEffect(() => {
     if (boot !== 'ready') return;
@@ -81,106 +80,73 @@ export function Workspace() {
       } else {
         await restoreLibrary();
       }
-      if (alive) runPagination();
+      if (alive && scene) runPagination();
     })();
 
     return () => {
       alive = false;
     };
-  }, [boot, runPagination]);
+  }, [boot, runPagination, scene]);
 
-  const onKey = useCallback(
-    (e: KeyboardEvent) => {
-      if (
-        e.target instanceof HTMLInputElement ||
-        e.target instanceof HTMLSelectElement ||
-        e.target instanceof HTMLTextAreaElement
-      ) {
-        return;
-      }
+  /**
+   * Разрешение растра страницы — по машине, а не по желанию (§6.5).
+   *
+   * Ставится после шрифтов: смена профиля перевёрстывает книгу, а вёрстка до
+   * загрузки гарнитуры посчиталась бы запасной и разошлась бы с растром. Число
+   * страниц от профиля при этом не меняется — в метриках всё пропорционально
+   * пикселям на миллиметр, — меняется только чёткость.
+   */
+  useEffect(() => {
+    if (boot !== 'ready' || !scene) return;
+    if (useBook.getState().profile !== texture) useBook.getState().setProfile(texture);
+  }, [boot, scene, texture]);
 
-      const journal = useJournal.getState();
-      const writing = deskKind === 'journal';
+  /**
+   * Клавиши, общие для обоих режимов.
+   *
+   * Всё, что здесь есть, — с модификатором, и это не совпадение: одиночные
+   * буквы принадлежат тому, что показано на экране (инструменты тетради,
+   * листание), а сочетания — приложению целиком.
+   */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const shell = useShell.getState();
 
-      // Пока на странице набирают текст, клавиатура принадлежит ему целиком.
-      if (journal.editing) return;
-
-      // Отмена — общая на всю тетрадь (SPEC §9.3), а не на страницу.
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
-        if (!writing) return;
+      if (e.key === 'Escape' && shell.palette) {
         e.preventDefault();
-        if (e.shiftKey) journal.redo();
-        else journal.undo();
+        shell.closePalette();
         return;
       }
 
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === '\\') {
-          e.preventDefault();
-          setPanelsHidden((v) => !v);
-        }
-        return;
-      }
+      if (!e.ctrlKey && !e.metaKey) return;
 
-      // Esc сначала поднимает от тетради и только потом уводит к стеллажу.
-      if (e.key === 'Escape') {
-        if (flat) journal.exitFlat();
-        else setView(view === 'desk' ? 'case' : 'desk');
-        return;
-      }
-
-      if (writing) {
-        const tool = TOOL_KEYS[e.key.toLowerCase()];
-        if (tool) {
-          journal.setTool(tool);
-          return;
-        }
-        if (flat && (e.key === 'Delete' || e.key === 'Backspace')) {
-          journal.deleteSelection();
-          return;
-        }
-      }
-
-      if (e.key === 'n' || e.key === 'N') {
-        journal.create();
-        return;
-      }
-
-      // Ctrl+S занят браузером, поэтому «поделиться» — на Shift+S: буква та же,
-      // а движение отличается ровно настолько, чтобы не путать с «на полку».
-      // Проверка идёт первой: без неё Shift+S съедается «на полку» ниже.
-      if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
-        useShare.getState().toggle(true);
-        return;
-      }
-
-      if ((e.key === 's' || e.key === 'S') && !flat) {
-        shelve();
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        if (shell.palette) shell.closePalette();
+        else shell.openPalette('commands');
         return;
       }
 
       /*
-       * Ход по страницам. В плоском режиме единица — страница: правят её, а не
-       * разворот, и стрелка обязана вести туда же, куда ведёт тулбар.
+       * ⌘F перехватывается у браузера. Его собственный поиск нашёл бы только то,
+       * что сейчас в DOM: в сцене — ничего вообще, в плоском режиме — одну
+       * открытую главу. Поиск по книге ищет по всем.
        */
-      if (flat) {
-        const page = journal.flatPage ?? 0;
-        if (e.key === 'ArrowRight') journal.setFlatPage(page + 1);
-        else if (e.key === 'ArrowLeft') journal.setFlatPage(page - 1);
+      if (e.key === 'f' || e.key === 'F') {
+        e.preventDefault();
+        shell.openPalette('search');
         return;
       }
 
-      if (view !== 'desk') return;
-      if (e.key === 'ArrowRight' || e.key === 'PageDown') requestTurn(1);
-      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') requestTurn(-1);
-    },
-    [deskKind, flat, requestTurn, setView, shelve, view],
-  );
+      if (e.key === '\\') {
+        e.preventDefault();
+        shell.togglePanels();
+      }
+    };
 
-  useEffect(() => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onKey]);
+  }, []);
 
   /**
    * Скриншот из буфера — главный способ попасть картинке в конспект.
@@ -276,65 +242,29 @@ export function Workspace() {
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <Topbar panelsHidden={panelsHidden} onTogglePanels={() => setPanelsHidden((v) => !v)} />
+      {/*
+        Первая остановка табуляции. Сцена с клавиатуры не читается ничем —
+        книга в ней это пиксели, — и человеку, пришедшему сюда с клавиатуры или
+        со скринридером, первым делом нужен выход в текст (§17).
+      */}
+      {mode === 'scene' ? (
+        <button type="button" className="skip" onClick={() => useShell.getState().setMode('plain')}>
+          Read this book as text
+        </button>
+      ) : null}
 
-      <div className="flex min-h-0 flex-1">
-        {!panelsHidden && <Navigator />}
+      {mode === 'plain' ? <PlainReader /> : <SceneWorkspace boot={boot} />}
 
-        <main className="relative min-w-0 flex-1">
-          {boot === 'ready' ? <Viewport /> : <div className="h-full w-full bg-ink-950" />}
-
-          {!panelsHidden && view !== 'case' && <Toolbar />}
-          {/* Ключ — номер страницы: у каждой свой масштаб и своя панорама */}
-          {flat && <FlatEditor key={flatPage} tint={deskTint} />}
-
-          {(boot !== 'ready' || status === 'reading' || status === 'paginating' || status === 'error') && (
-            <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
-              <div className="rounded-md border border-ink-700 bg-ink-900/92 px-3 py-1.5 text-[11px] text-ash-300 backdrop-blur">
-                {boot === 'fonts' && 'Loading fonts and probing the rasterizer…'}
-                {boot === 'failed' && 'Fonts failed to load — run node scripts/fetch-fonts.mjs'}
-                {boot === 'ready' && status === 'reading' && (
-                  <span className="tabular">
-                    {stage || 'Reading the file'}
-                    {progress.total > 0 ? ` — chapter ${progress.done} of ${progress.total}` : ''}…
-                  </span>
-                )}
-                {boot === 'ready' && status === 'paginating' && (
-                  <span className="tabular">
-                    Composing chapter {progress.done} of {progress.total}…
-                  </span>
-                )}
-                {boot === 'ready' && status === 'error' && (
-                  <span className="text-red-300">{error}</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {dropping && (
-            <div className="pointer-events-none absolute inset-3 flex items-center justify-center rounded-lg border-2 border-dashed border-brass-500/70 bg-ink-950/70 backdrop-blur-sm">
-              <span className="text-[12.5px] text-brass-400">
-              {flat ? 'Drop an image onto the page' : 'Drop an EPUB, TXT, Markdown or .r3ad file'}
-            </span>
-            </div>
-          )}
-        </main>
-
-        {!panelsHidden && <Inspector />}
-      </div>
+      {dropping && (
+        <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center rounded-lg border-2 border-dashed border-brass-500/70 bg-ink-950/70 backdrop-blur-sm">
+          <span className="text-[12.5px] text-brass-400">
+            {flat ? 'Drop an image onto the page' : 'Drop an EPUB, TXT, Markdown or .r3ad file'}
+          </span>
+        </div>
+      )}
 
       <ShareDialog />
+      <Palette />
     </div>
   );
 }
-
-/** Буквы инструментов из SPEC §12.3. Раскладка фигмоподобная намеренно. */
-const TOOL_KEYS: Record<string, Tool> = {
-  v: 'select',
-  b: 'pen',
-  h: 'marker',
-  e: 'eraser',
-  t: 'text',
-  i: 'image',
-  l: 'clip',
-};

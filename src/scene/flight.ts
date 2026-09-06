@@ -3,6 +3,13 @@
 /**
  * Полёт книги между столом и полкой.
  *
+ * Здесь только состояние и время: ни одной строчки three. Причина не в чистоте
+ * слоёв, а в весе — на этот модуль ссылается библиотека (`store/useLibrary`),
+ * чтобы объявить полёт, а на библиотеку ссылается вся оболочка. Пока THREE
+ * лежал здесь, он приезжал в первую загрузку даже тому, кто открыл сайт в
+ * плоском режиме и сцены не увидит вовсе. Геометрия пути — в flightPath.ts,
+ * рядом с теми, кто её рисует.
+ *
  * Устроено так же, как переворот страницы (см. turn.ts): изменяемый объект,
  * который читает и пишет кадровый цикл, и ни одного числа этой анимации в
  * сторе. Причина та же — шестьдесят реконсиляций в секунду ради трёх float'ов
@@ -13,8 +20,7 @@
  * раскрывается. Смешать их означало бы показать раскрытую книгу, кувыркающуюся
  * в воздухе, — ровно то, чего с книгами не бывает.
  */
-import * as THREE from 'three';
-import { COVER_W, GUTTER } from './geometry';
+import { motionPrefs } from './motionPrefs';
 
 export type FlightKind = 'shelve' | 'take';
 
@@ -35,25 +41,18 @@ export const flight: FlightMotion = {
 };
 
 /**
- * Где книга сейчас.
+ * Показывает ли кто-нибудь сцену.
  *
- * Пишется тем, кто её рисует, читается камерой. Иначе полёт со стеллажа к столу
- * проходит мимо кадра: стол и полка разнесены на два метра, и ни один из двух
- * ракурсов не видит обоих концов пути.
+ * Полёт книги — единственная анимация проекта, у которой есть последствия в
+ * состоянии: пока она не доиграла, книга не считается ни на столе, ни на полке,
+ * и досчитывает её кадровый цикл. В плоском режиме кадрового цикла нет вовсе, и
+ * без этого флага «снять книгу с полки» там означало бы книгу, зависшую в
+ * воздухе навсегда.
  */
-export const flightPosition = new THREE.Vector3();
+export const stage = { mounted: false };
 
-/**
- * Насколько камере сейчас держаться за летящую книгу.
- *
- * Ноль на обоих концах пути и максимум посередине: у полки и у стола книга и так
- * в кадре, а вот между ними её надо вести. Так камера не дёргается в моменты
- * взлёта и посадки — там она смотрит туда, куда и должна по своему ракурсу.
- */
-export function flightFocus(): number {
-  if (!flight.active || flight.path <= 0 || flight.path >= 1) return 0;
-  const p = flight.kind === 'shelve' ? flight.path : 1 - flight.path;
-  return Math.sin(Math.PI * p) * 0.9;
+export function setStageMounted(mounted: boolean) {
+  stage.mounted = mounted;
 }
 
 /** Закрыть или раскрыть книгу. Крышка идёт медленнее полёта: это жест, а не бросок. */
@@ -76,6 +75,15 @@ export function stopFlight() {
 /** Шаг анимации. true — долетели и доигрались. */
 export function stepFlight(dt: number): boolean {
   if (!flight.active) return false;
+
+  // «Поменьше движения» не отменяет действие, а убирает промежуточные кадры:
+  // книга оказывается там, куда летела, сразу (см. motionPrefs).
+  if (motionPrefs.instant) {
+    flight.close = flight.kind === 'shelve' ? 1 : 0;
+    flight.path = flight.kind === 'shelve' ? 1 : 0;
+    return true;
+  }
+
   const step = Math.min(dt, 1 / 30);
 
   if (flight.kind === 'shelve') {
@@ -110,49 +118,6 @@ export function landingBounce(path: number, kind: FlightKind): number {
   if (landing < 0.86) return 0;
   const u = (landing - 0.86) / 0.14;
   return -Math.sin(u * Math.PI * 2) * 0.35 * (1 - u);
-}
-
-/**
- * Поза закрытого тома на столе.
- *
- * Книга лежит крышкой вверх, корешком влево, головкой от читателя — так, как её
- * кладут, а не так, как удобно считать. Координаты совпадают с тем, что рисует
- * раскрытая книга при закрытой крышке: полёт и чтение обязаны стыковаться без
- * рывка.
- */
-export function deskPosition(thickness: number, out: THREE.Vector3): THREE.Vector3 {
-  return out.set(GUTTER + COVER_W / 2, thickness / 2, 0);
-}
-
-/**
- * Поворот из собственных осей тома в позу «лежит на столе».
- *
- * Оси тома: x — толщина, y — от хвоста к головке, z — наружу из корешка. На
- * столе толщина смотрит вверх, головка — от читателя, корешок — влево.
- */
-export const DESK_QUATERNION = new THREE.Quaternion().setFromRotationMatrix(
-  new THREE.Matrix4().makeBasis(
-    new THREE.Vector3(0, 1, 0),
-    new THREE.Vector3(0, 0, -1),
-    new THREE.Vector3(-1, 0, 0),
-  ),
-);
-
-/** Высота дуги над прямой «стол — полка». */
-const ARC_LIFT = 16;
-
-/**
- * Путь книги.
- *
- * Кривая Catmull-Rom по четырём точкам: концы — стол и слот, между ними две
- * приподнятые. Прямая линия между полкой и столом прошла бы сквозь стеллаж и
- * читалась бы как телепортация; дуга вверх — то, как книгу и переносят.
- */
-export function flightPath(from: THREE.Vector3, to: THREE.Vector3): THREE.CatmullRomCurve3 {
-  const lift = new THREE.Vector3(0, ARC_LIFT, 0);
-  const a = from.clone().lerp(to, 0.3).add(lift);
-  const b = from.clone().lerp(to, 0.7).add(lift);
-  return new THREE.CatmullRomCurve3([from.clone(), a, b, to.clone()], false, 'catmullrom', 0.5);
 }
 
 if (process.env.NODE_ENV !== 'production') {

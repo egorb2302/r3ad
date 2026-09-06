@@ -30,16 +30,13 @@ import { VOLUME_DEPTH, VOLUME_HEIGHT } from './caseGeometry';
 import { composeShelfPose } from './pose';
 import { spineAtlas } from './spineAtlas';
 import { soloSpineResources } from './spineInstances';
+import { easeInOutCubic, flight, landingBounce, stepFlight } from '../flight';
 import {
   DESK_QUATERNION,
   deskPosition,
-  easeInOutCubic,
-  flight,
   flightPath,
   flightPosition,
-  landingBounce,
-  stepFlight,
-} from '../flight';
+} from '../route';
 
 export interface FlyingVolumeProps {
   volume: VolumeRecord;
@@ -101,9 +98,12 @@ export function FlyingVolume({ volume, thickness, placement, onArrived }: Flying
     map.needsUpdate = true;
   }, [thickness, volume]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const node = mesh.current;
     if (!node) return;
+
+    // Полёт идёт в кадре, а кадры выдаются по требованию (см. Viewport).
+    state.invalidate();
 
     const done = stepFlight(delta);
 

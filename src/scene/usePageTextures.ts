@@ -20,7 +20,6 @@ import { PAPERS, type PaperTint } from '@/core/theme';
 import { releaseCanvas } from '@/core/rasterize/svgRasterizer';
 import { useBook, type RenderStat } from '@/store/useBook';
 
-const MAX_LIVE = 8;
 
 interface Entry {
   texture: THREE.CanvasTexture;
@@ -33,6 +32,13 @@ class TextureCache {
 
   constructor(
     private renderer: PageRenderer,
+    /**
+     * Потолок живых текстур. Приходит из профиля устройства (§6.5): восемь на
+     * десктопе, четыре там, где страница и так меньше, а видеопамяти меньше
+     * втрое. Ниже четырёх опускаться нельзя ни на каком железе — во время
+     * переворота на экране одновременно четыре страницы.
+     */
+    private limit: number,
     private onStat: (stat: RenderStat) => void,
     private onChange: (size: number) => void,
   ) {}
@@ -86,7 +92,7 @@ class TextureCache {
   }
 
   private evict() {
-    while (this.entries.size > MAX_LIVE) {
+    while (this.entries.size > Math.max(4, this.limit)) {
       const oldest = this.entries.keys().next().value as number | undefined;
       if (oldest === undefined) break;
       const entry = this.entries.get(oldest)!;
@@ -107,19 +113,6 @@ class TextureCache {
   }
 }
 
-/**
- * Разворот в книге: слева чётная страница предыдущего листа, справа — нечётная
- * текущего. Первый разворот показывает только правую: книга открывается на recto.
- */
-export function spreadPages(sheet: number, pageCount: number) {
-  const left = 2 * sheet - 1;
-  const right = 2 * sheet;
-  return {
-    left: left >= 0 && left < pageCount ? left : null,
-    right: right >= 0 && right < pageCount ? right : null,
-  };
-}
-
 export interface PageTextures {
   /** Готовая текстура страницы или null, если ещё считается. */
   get: (index: number | null | undefined) => THREE.Texture | null;
@@ -133,7 +126,7 @@ export interface PageTextures {
 const clean = (list: (number | null | undefined)[]) =>
   list.filter((i): i is number => typeof i === 'number' && i >= 0);
 
-export function usePageTextures(tint: PaperTint): PageTextures {
+export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
   const pagination = useBook((s) => s.pagination);
   const metrics = useBook((s) => s.metrics);
   const typography = useBook((s) => s.typography);
@@ -168,7 +161,7 @@ export function usePageTextures(tint: PaperTint): PageTextures {
     if (!pagination) return;
 
     const renderer = new PageRenderer(chapters, pagination, metrics, typography, PAPERS[tint]);
-    const cache = new TextureCache(renderer, noteRender, setLiveTextures);
+    const cache = new TextureCache(renderer, limit, noteRender, setLiveTextures);
     cacheRef.current = cache;
 
     // Печатаем то, что было заказано у прежнего кэша. Пробуждение — то же, что
@@ -186,7 +179,7 @@ export function usePageTextures(tint: PaperTint): PageTextures {
       renderer.destroy();
       cacheRef.current = null;
     };
-  }, [pagination, metrics, typography, chapters, tint, noteRender, setLiveTextures]);
+  }, [pagination, metrics, typography, chapters, tint, limit, noteRender, setLiveTextures]);
 
   const get = useCallback((index: number | null | undefined) => {
     if (typeof index !== 'number' || index < 0) return null;

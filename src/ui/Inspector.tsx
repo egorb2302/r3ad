@@ -11,11 +11,12 @@ import { useLibrary } from '@/store/useLibrary';
 import { linesPerPage } from '@/core/typography';
 import { charsPerPage } from '@/core/library/volume';
 import { CASE } from '@/scene/bookcase/caseGeometry';
-import { SPINE_CAPACITY } from '@/scene/bookcase/spineInstances';
+import { SPINE_CAPACITY } from '@/scene/bookcase/atlasGrid';
 import { Notice, Panel, Row, Select, Slider, Stat, Toggle } from './primitives';
 import { JournalInspector } from './journal/JournalInspector';
 import { ClipPanel } from './clips/ClipPanel';
 import { SharePanel } from './share/SharePanel';
+import { useShell } from '@/store/useShell';
 import { BindingPanel } from './theme/BindingPanel';
 import { ScenePanel } from './theme/ScenePanel';
 
@@ -57,13 +58,20 @@ export function Inspector() {
    */
   const writing = desk?.kind === 'journal';
 
+  // На узком экране инспектор лежит в одном ящике с навигатором (см. Navigator).
+  const compact = useShell((s) => s.device.compact);
+
   const margins = typography.margins;
 
   // Язык книги может быть 'en-GB' — в списке такого нет, показываем базовый.
   const langOption = LANGUAGES.find((l) => typography.lang.startsWith(l.value))?.value ?? 'en';
 
   return (
-    <aside className="flex h-full w-[262px] shrink-0 flex-col overflow-y-auto border-l border-ink-800 bg-ink-900">
+    <aside
+      className={`flex shrink-0 flex-col bg-ink-900 ${
+        compact ? 'w-full border-t border-ink-800' : 'h-full w-[262px] overflow-y-auto border-l border-ink-800'
+      }`}
+    >
       {writing ? <JournalInspector /> : null}
 
       {writing ? null : (

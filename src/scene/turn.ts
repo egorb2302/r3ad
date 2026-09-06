@@ -15,6 +15,8 @@
  * (SPEC §7.2, «инерция»).
  */
 
+import { motionPrefs } from './motionPrefs';
+
 export interface TurnMotion {
   /** 0 — лист лежит справа, 1 — слева. */
   t: number;
@@ -69,6 +71,17 @@ export const MAX_SPEED = 7;
 /** Шаг пружины. Возвращает true, когда лист успокоился. */
 export function stepMotion(motion: TurnMotion, dt: number): boolean {
   if (motion.dragging) return false;
+
+  /*
+   * При «поменьше движения» лист не летит, а оказывается на месте. Заметьте,
+   * что перетаскивание проверено выше и сюда не доходит: настройка про
+   * анимации, которые происходят сами, а не про то, что человек ведёт пальцем.
+   */
+  if (motionPrefs.instant) {
+    motion.t = motion.target;
+    motion.velocity = 0;
+    return true;
+  }
 
   // Кадр мог быть длинным (вкладка уходила в фон) — иначе пружина взорвётся.
   const step = Math.min(dt, 1 / 30);

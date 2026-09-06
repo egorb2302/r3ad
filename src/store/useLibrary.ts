@@ -21,7 +21,7 @@ import { dominantColor } from '@/core/library/palette';
 import { themeFor, themeFromCover, type BookTheme } from '@/core/theme';
 import { volumeFromDoc, type VolumeRecord, type VolumeSource } from '@/core/library/volume';
 import { typographyKey } from '@/core/paginate/paginate';
-import { startFlight, stopFlight, type FlightKind } from '@/scene/flight';
+import { stage, startFlight, stopFlight, type FlightKind } from '@/scene/flight';
 import type { CameraView } from '@/scene/camera/CameraRig';
 import { useBook } from './useBook';
 
@@ -60,6 +60,19 @@ interface LibraryState {
 /** Запись для книги, лежащей на столе. */
 function deskRecord(doc: ContentDoc, source: VolumeSource): VolumeRecord {
   return volumeFromDoc(doc, source);
+}
+
+/**
+ * Досчитать полёт там, где его некому играть.
+ *
+ * Анимацию доводит до конца кадровый цикл сцены, и пока он не сообщил о посадке,
+ * книга не лежит ни на столе, ни на полке. В плоском режиме (§17) сцены нет
+ * вовсе — и без этой строчки «снять книгу с полки» там оставляло бы её в
+ * воздухе навсегда. Мгновенно, а не быстро: показывать нечего, значит и время
+ * тратить не на что.
+ */
+function land() {
+  if (!stage.mounted) useLibrary.getState().arrived();
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({
@@ -122,6 +135,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       hovered: null,
     });
     startFlight('shelve');
+    land();
   },
 
   take: (id) => {
@@ -152,6 +166,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     });
     startFlight('take');
     if (volume.kind !== 'journal') void useBook.getState().openVolume(volume);
+    land();
   },
 
   /** Полёт доиграл. */

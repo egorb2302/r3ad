@@ -21,7 +21,8 @@ import * as THREE from 'three';
 import { attachCurl, leafShadowTexture, makeCurlUniforms, type CurlUniforms } from './materials/pageCurl';
 import { motion, stepMotion } from './turn';
 import type { PaperTint } from '@/core/theme';
-import { blankPage, blockThickness, COVER_T, GUTTER, TRIM_H, TRIM_W } from './geometry';
+import { blockThickness, COVER_T, GUTTER, TRIM_H, TRIM_W } from './geometry';
+import { blankPage } from './blank';
 
 /** Полная длина листа от оси корешка до внешнего обреза. */
 const REACH = GUTTER + TRIM_W;
@@ -60,7 +61,9 @@ export function Leaf({ front, back, leftSheets, rightSheets, tint, gsm, onSettle
     attachCurl(material.current, own);
   }, []);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
+    // Пружина живёт в кадре — значит, кадр нужно заказывать (см. Viewport).
+    state.invalidate();
     const own = uniforms.current;
     if (!own) return;
 

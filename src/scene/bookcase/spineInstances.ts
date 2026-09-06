@@ -13,10 +13,9 @@
  * Одно число задаёт оба предела, и разъехаться им негде.
  */
 import * as THREE from 'three';
-import { ATLAS_CAPACITY } from './spineAtlas';
+import { SPINE_CAPACITY } from './atlasGrid';
 import { spineGeometry, spineMaterial } from './spineMesh';
 
-export const SPINE_CAPACITY = ATLAS_CAPACITY;
 
 export interface SpineResources {
   geometry: THREE.BufferGeometry;

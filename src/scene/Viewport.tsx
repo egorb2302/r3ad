@@ -24,20 +24,20 @@
  * месте, без сетевой загрузки — важно и для оффлайна, и чтобы первый кадр не
  * ждал мегабайтную карту.
  */
-import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { Book } from './Book';
 import { Leaf } from './Leaf';
 import { blockThickness, COVER_H, COVER_T, COVER_W, GUTTER, TRIM_H, TRIM_W } from './geometry';
 import { MAX_SPEED, motion, planTurn, releaseTarget, resetMotion, type TurnPlan } from './turn';
-import { flight } from './flight';
+import { flight, setStageMounted } from './flight';
 import { Bookcase } from './bookcase/Bookcase';
 import { Spines } from './bookcase/Spines';
 import { FlyingVolume } from './bookcase/FlyingVolume';
 import { CASE, VOLUME_HEIGHT } from './bookcase/caseGeometry';
-import { SPINE_CAPACITY } from './bookcase/spineInstances';
+import { SPINE_CAPACITY } from './bookcase/atlasGrid';
 import { CameraRig } from './camera/CameraRig';
 import { FlatProbe } from './journal/FlatProbe';
 import { useJournalTextures } from './journal/useJournalTextures';
@@ -51,6 +51,7 @@ import { lastSpread, mm } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { useTheme } from '@/store/useTheme';
+import { useShell } from '@/store/useShell';
 import { spreadOf, useJournal } from '@/store/useJournal';
 import { usePageTextures } from './usePageTextures';
 
@@ -95,6 +96,34 @@ export function Viewport() {
   const scene = useTheme((s) => s.scene);
   const shadow = shadowLook(scene);
 
+  const device = useShell((s) => s.device);
+
+  /*
+   * Сцена смонтирована — значит, есть кому доигрывать полёты. Без сцены их
+   * досчитывает библиотека (см. useLibrary), иначе книга, снятая с полки в
+   * плоском режиме, зависла бы в воздухе.
+   */
+  useEffect(() => {
+    setStageMounted(true);
+    return () => setStageMounted(false);
+  }, []);
+
+  /*
+   * Автопонижение профиля при просадке (§16). Обратно не поднимаем: качели
+   * между двумя разрешениями заметнее, чем то, что срезали, а машина за минуту
+   * быстрее не становится.
+   */
+  const [slow, setSlow] = useState(false);
+  const dpr: [number, number] = slow ? [1, 1] : device.dpr;
+
+  /*
+   * Режим кадрового цикла — состояние React, а не поле в сторе сцены.
+   * `<Canvas>` заново применяет своё свойство `frameloop` при каждой
+   * перерисовке, и назначенное изнутри (`setFrameloop`) держится ровно до
+   * первого изменения чего угодно на сцене — то есть до следующего разворота.
+   */
+  const [loop, setLoop] = useState<'always' | 'demand'>('always');
+
   /*
    * Одетая книга — та, что на столе, а во время полёта та, что летит: стол в
    * эти секунды уже пуст, а показывать надо всё ещё её бумагу и её переплёт.
@@ -108,8 +137,8 @@ export function Viewport() {
    * бездействующий не печатает ничего, а условный вызов хука невозможен. Кто
    * из них показывается, решает то, что лежит на столе.
    */
-  const printed = usePageTextures(theme.paper.tint);
-  const written = useJournalTextures(theme.paper.tint);
+  const printed = usePageTextures(theme.paper.tint, device.liveTextures);
+  const written = useJournalTextures(theme.paper.tint, device.liveTextures);
   const journalOnDesk = desk?.kind === 'journal';
   const pages = journalOnDesk ? written : printed;
 
@@ -247,10 +276,13 @@ export function Viewport() {
 
   return (
     <Canvas
-      dpr={[1, 2]}
-      gl={{ antialias: true }}
+      dpr={dpr}
+      frameloop={loop}
+      gl={{ antialias: !slow }}
       camera={{ position: [0, 42, 50], fov: 30, near: 0.5, far: 500 }}
     >
+      <Idle onSettled={() => setLoop('demand')} />
+      <FrameGuard target={device.kind === 'phone' ? 26 : 48} onSlow={() => setSlow(true)} />
       {/* Свет, фон и туман — пресетом (см. scene/lighting). */}
       <Lighting scene={scene} />
 
@@ -315,7 +347,12 @@ export function Viewport() {
       />
       <DevHandle />
 
-      {/* Единственная тень в сцене: контактная под книгой. Её задаёт тема. */}
+      {/*
+        Единственная тень в сцене: контактная под книгой. Её задаёт тема — а на
+        слабой машине её нет вовсе: это отдельный проход 512×512 каждый кадр
+        ради пятна под книгой.
+      */}
+      {device.shadows ? (
       <ContactShadows
         position={[0, 0.003, 0]}
         opacity={shadow.opacity}
@@ -325,6 +362,7 @@ export function Viewport() {
         resolution={512}
         color={shadow.color}
       />
+      ) : null}
 
       {/* Пределы приближения и цель ведёт CameraRig: у стола и у полки они разные */}
       <OrbitControls
@@ -337,6 +375,77 @@ export function Viewport() {
       />
     </Canvas>
   );
+}
+
+/**
+ * Рендер-луп по требованию.
+ *
+ * На M0 `frameloop="demand"` не заработал: в связке R3F 9 / React 19 дети
+ * `<Canvas>` монтируются в отдельный корень, который в этом режиме не доводит
+ * первую работу до коммита, — сцена не появлялась до первого щелчка мышью.
+ * Поэтому включаем его не свойством, а через полторы секунды после старта,
+ * когда сцена уже собрана: тот отказ был про монтирование, а не про сам режим.
+ *
+ * Дальше кадры заказывают те, кому они нужны: пружина листа, полёт книги,
+ * переезд камеры и затухание подъёма корешков — каждый зовёт `invalidate` из
+ * своего кадра, пока не доехал. Всё остальное — смена разворота, текстура,
+ * тема, размер окна — доходит до сцены через React, а он будит луп сам.
+ *
+ * Выигрыш не в кадрах, а в том, что их нет: раскрытая книга на столе, на
+ * которую никто не смотрит, перестала стоить 60 кадров в секунду.
+ */
+function Idle({ onSettled }: { onSettled: () => void }) {
+  const frames = useRef(0);
+
+  useFrame(() => {
+    if (frames.current > SETTLE) return;
+    frames.current += 1;
+    if (frames.current === SETTLE) onSettled();
+  });
+
+  return null;
+}
+
+/**
+ * Кадров непрерывной работы перед переходом на кадры по требованию.
+ *
+ * Полсекунды: за это время успевают смонтироваться дети холста, доехать
+ * камера и встать первый разворот — то есть пройти ровно тот участок, на
+ * котором demand не работал на M0.
+ */
+const SETTLE = 30;
+
+/**
+ * Сторож частоты кадров (§16).
+ *
+ * Меряет только во время движения — листания и полёта, — и в этом весь смысл:
+ * бюджет проекта сформулирован как «60 кадров при листании», а в покое кадров
+ * теперь нет вовсе, и средняя частота по ним не значит ничего. Первый кадр
+ * после простоя тоже не в счёт: его дельта — это время сна, а не работы.
+ *
+ * Понижение одностороннее. Замер идёт окном в 45 кадров, то есть меньше
+ * секунды: успеть решить надо в том же жесте, в котором стало медленно.
+ */
+function FrameGuard({ target, onSlow }: { target: number; onSlow: () => void }) {
+  const samples = useRef<number[]>([]);
+
+  useFrame((_, delta) => {
+    const moving = flight.active || useBook.getState().turn !== null;
+    if (!moving || delta > 0.25) {
+      samples.current.length = 0;
+      return;
+    }
+
+    const window = samples.current;
+    window.push(delta);
+    if (window.length < 45) return;
+
+    const average = window.reduce((sum, d) => sum + d, 0) / window.length;
+    window.length = 0;
+    if (average > 1 / target) onSlow();
+  });
+
+  return null;
 }
 
 interface TurnInputProps {

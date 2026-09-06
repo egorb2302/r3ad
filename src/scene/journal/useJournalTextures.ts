@@ -25,7 +25,13 @@ import { useJournal } from '@/store/useJournal';
 import { clippingFor } from '@/store/useClips';
 import type { PageTextures } from '../usePageTextures';
 
-/** Столько же, сколько у тома: на экране разворот, рядом ещё один. */
+/**
+ * Столько же, сколько у тома: на экране разворот, рядом ещё один.
+ *
+ * С M7 потолок приходит из профиля устройства (§6.5): страница тетради стоит
+ * ровно столько же видеопамяти, сколько страница книги, и телефон не станет
+ * терпеть её шесть штук только потому, что на ней рисуют, а не читают.
+ */
 const MAX_LIVE = 6;
 
 interface Entry {
@@ -79,7 +85,7 @@ function paintTexture(
   return { texture, canvas };
 }
 
-export function useJournalTextures(tint: PaperTint): PageTextures {
+export function useJournalTextures(tint: PaperTint, limit = MAX_LIVE): PageTextures {
   const openId = useJournal((s) => s.openId);
   const docs = useJournal((s) => s.docs);
   const journal: JournalDoc | null = openId ? docs[openId] ?? null : null;
@@ -134,7 +140,7 @@ export function useJournalTextures(tint: PaperTint): PageTextures {
       }
 
       // Map хранит порядок вставки — вытесняем самую давнюю.
-      while (cache.current.size > MAX_LIVE) {
+      while (cache.current.size > Math.max(4, limit)) {
         const oldest = cache.current.keys().next().value as PageDoc | undefined;
         if (!oldest) break;
         release(cache.current.get(oldest)!);
@@ -143,7 +149,7 @@ export function useJournalTextures(tint: PaperTint): PageTextures {
 
       if (painted) bump((v) => v + 1);
     },
-    [heightPx, journal, pageAt, rule, tint, widthPx],
+    [heightPx, journal, limit, pageAt, rule, tint, widthPx],
   );
 
   return { get, request };

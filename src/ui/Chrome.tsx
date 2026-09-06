@@ -1,14 +1,14 @@
 'use client';
 
 /** Верхняя строка и нижний тулбар вьюпорта. */
-import { lastSpread, sheetsToThicknessMm } from '@/core/units';
+import { lastSpread, sheetsToThicknessMm, spreadPages } from '@/core/units';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
 import { useShare } from '@/store/useShare';
-import { spreadPages } from '@/scene/usePageTextures';
+import { useShell } from '@/store/useShell';
 import { JournalToolbar } from './journal/JournalToolbar';
 
-export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () => void; panelsHidden: boolean }) {
+export function Topbar() {
   const pagination = useBook((s) => s.pagination);
   const deskPages = useBook((s) => s.pages);
   const deskSheets = useBook((s) => s.sheets);
@@ -21,6 +21,19 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
   const flight = useLibrary((s) => s.flight);
   const shelve = useLibrary((s) => s.shelve);
   const share = useShare((s) => s.toggle);
+  const panels = useShell((s) => s.panels);
+  const togglePanels = useShell((s) => s.togglePanels);
+  const setMode = useShell((s) => s.setMode);
+  const openPalette = useShell((s) => s.openPalette);
+
+  /*
+   * На узком экране в шапке остаётся только то, без чего не обойтись: где мы,
+   * панели, текстовый режим и палитра. Остальное — «поделиться», «на полку»,
+   * счётчик страниц — там же, в палитре: у телефона нет ни ⌘K, ни места на
+   * восемь кнопок, и палитра оказывается для него не ускорителем для знающих,
+   * а основным меню.
+   */
+  const compact = useShell((s) => s.device.compact);
   const shared = useShare((s) => s.shared);
   const keep = useShare((s) => s.keep);
 
@@ -29,8 +42,8 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
   const journal = desk?.kind === 'journal';
 
   return (
-    <header className="flex h-9 shrink-0 items-center justify-between border-b border-ink-800 bg-ink-900 px-3">
-      <div className="flex items-center gap-2 text-[11.5px]">
+    <header className="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-ink-800 bg-ink-900 px-3">
+      <div className="flex min-w-0 items-center gap-2 text-[11.5px]">
         <span className="font-medium tracking-tight text-brass-500">r3ad</span>
         <span className="text-ink-600">/</span>
         <button
@@ -49,7 +62,7 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
             </span>
           </>
         ) : null}
-        {atDesk && desk && right !== null ? (
+        {atDesk && desk && right !== null && !compact ? (
           <>
             <span className="text-ink-600">/</span>
             <span className="tabular text-ash-400">p. {right + 1}</span>
@@ -57,7 +70,7 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
         ) : null}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-3">
         {/*
           Чужая полка из короткой ссылки. Метка стоит там же, где у снапшота, и
           говорит то же самое: показанное сюда не сохраняется, пока его не
@@ -78,6 +91,7 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
             </button>
           </>
         ) : null}
+        {compact ? null : (
         <button
           type="button"
           onClick={() => share(true)}
@@ -86,7 +100,8 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
         >
           share
         </button>
-        {desk && !flight ? (
+        )}
+        {desk && !flight && !compact ? (
           <button
             type="button"
             onClick={shelve}
@@ -96,6 +111,7 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
             shelve
           </button>
         ) : null}
+        {compact ? null : (
         <span
           className={`tabular text-[10.5px] ${
             status === 'paginating' ? 'text-brass-500' : 'text-ash-400'
@@ -116,13 +132,37 @@ export function Topbar({ onTogglePanels, panelsHidden }: { onTogglePanels: () =>
                     ? `${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
                     : 'preparing'}
         </span>
+        )}
+        {compact ? (
+          <button
+            type="button"
+            onClick={() => openPalette('commands')}
+            title="Commands (Ctrl+K)"
+            className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300"
+          >
+            more
+          </button>
+        ) : null}
+        {/*
+          Плоский режим вынесен в шапку, а не спрятан в палитру: §17 обещает
+          тоггл там, где его увидят, — это путь для того, кому 3D мешает читать,
+          а не пасхалка для знающих про ⌘K.
+        */}
         <button
           type="button"
-          onClick={onTogglePanels}
+          onClick={() => setMode('plain')}
+          title="Read this book as plain text (?mode=flat)"
+          className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
+        >
+          text
+        </button>
+        <button
+          type="button"
+          onClick={() => togglePanels()}
           title="Hide panels (Ctrl+\)"
           className="rounded px-1.5 py-0.5 text-[10.5px] text-ash-400 transition-colors hover:bg-ink-800 hover:text-ash-100"
         >
-          {panelsHidden ? 'show panels' : 'hide panels'}
+          {compact ? (panels ? 'close' : 'panels') : panels ? 'hide panels' : 'show panels'}
         </button>
       </div>
     </header>

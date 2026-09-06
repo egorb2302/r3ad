@@ -21,7 +21,8 @@ import type { VolumeRecord } from '@/core/library/volume';
 import { CASE, SHELF_BOOK_Z, SHELF_LEFT, shelfSurfaceY } from './caseGeometry';
 import { composeShelfPose, volumeScale } from './pose';
 import { spineAtlas } from './spineAtlas';
-import { spineResources, SPINE_CAPACITY } from './spineInstances';
+import { spineResources } from './spineInstances';
+import { SPINE_CAPACITY } from './atlasGrid';
 
 /** Дальше этого сдвига нажатие считается перетаскиванием, а не щелчком. */
 const DRAG_SLOP = 0.7;
@@ -110,13 +111,17 @@ export function Spines({
     cells.needsUpdate = true;
   }, [visible, volumes]);
 
-  useFrame((_, delta) => {
+  useFrame((frame, delta) => {
     const node = mesh.current;
     if (!node) return;
 
     const { tints } = spineResources();
     const held = drag.current;
     const dt = Math.min(delta, 1 / 30);
+
+    // Подъём корешка под курсором доезжает затуханием, а кадры выдаются по
+    // требованию (см. Viewport): пока хоть один том не доехал, просим ещё.
+    let settling = false;
 
     for (let i = 0; i < visible.length; i++) {
       const placement = visible[i];
@@ -127,6 +132,9 @@ export function Spines({
       state.hover = THREE.MathUtils.damp(state.hover, wantHover, 14, dt);
       state.arm = THREE.MathUtils.damp(state.arm, wantArm, 11, dt);
       anim.current.set(placement.id, state);
+      if (Math.abs(state.hover - wantHover) > 0.002 || Math.abs(state.arm - wantArm) > 0.002) {
+        settling = true;
+      }
 
       composeShelfPose(placement, state.hover, state.arm, scratch.position, scratch.quaternion);
 
@@ -146,6 +154,8 @@ export function Spines({
     node.count = visible.length;
     node.instanceMatrix.needsUpdate = true;
     tints.needsUpdate = true;
+
+    if (settling || held) frame.invalidate();
   });
 
   /** Точка на плоскости ряда под курсором. */

@@ -80,3 +80,21 @@ export function splitBlock(totalSheets: number, currentSheet: number) {
     rightMm: sheetsToThicknessMm(totalSheets - clamped),
   };
 }
+
+/**
+ * Разворот в книге: слева чётная страница предыдущего листа, справа — нечётная
+ * текущего. Первый разворот показывает только правую: книга открывается на recto.
+ *
+ * Живёт в ядре, а не в сцене, хотя спрашивает об этом в первую очередь сцена.
+ * Причина в том, кто ещё спрашивает: та же арифметика нужна шапке воркспейса,
+ * чтобы написать «с. 114», а шапка есть и в плоском режиме, где сцены нет. Пока
+ * функция лежала рядом с текстурами, за ней в первую загрузку приезжал three.
+ */
+export function spreadPages(sheet: number, pageCount: number) {
+  const left = 2 * sheet - 1;
+  const right = 2 * sheet;
+  return {
+    left: left >= 0 && left < pageCount ? left : null,
+    right: right >= 0 && right < pageCount ? right : null,
+  };
+}

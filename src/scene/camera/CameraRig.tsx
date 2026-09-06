@@ -21,8 +21,10 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useStore } from '@react-three/fiber';
 import * as THREE from 'three';
 import { CASE_HEIGHT, CASE_WIDTH, CASE_Z } from '../bookcase/caseGeometry';
-import { TRIM_H, TRIM_W } from '../geometry';
-import { easeInOutCubic, flightFocus, flightPosition } from '../flight';
+import { COVER_H, COVER_W, GUTTER, TRIM_H, TRIM_W } from '../geometry';
+import { easeInOutCubic } from '../flight';
+import { flightFocus, flightPosition } from '../route';
+import { span } from '../motionPrefs';
 
 export type CameraView = 'desk' | 'case' | 'flat';
 
@@ -74,6 +76,14 @@ function fitDistance(
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+
+/** Ширина раскрытой книги от обреза до обреза. */
+const SPREAD_WIDTH = 2 * (GUTTER + COVER_W);
+
+/** Ракурс стола: куда смотрим, откуда и с какого расстояния на широком экране. */
+const DESK_TARGET = new THREE.Vector3(0, 1.2, 0);
+const DESK_DIRECTION = new THREE.Vector3(0, 40.8, 50).normalize();
+const DESK_DISTANCE = 64.6;
 /** Верх страницы в плоском режиме: от читателя. */
 const PAGE_UP = new THREE.Vector3(0, 0, -1);
 
@@ -108,13 +118,28 @@ function shotFor(view: CameraView, flat: FlatFocus | null, fov: number, aspect: 
     };
   }
 
+  /*
+   * Стол. Направление взгляда постоянное — это выбранный ракурс, — а вот
+   * расстояние подбирается под окно, как и у полки.
+   *
+   * До M7 оно было константой, и на узком экране разворот вылезал за края:
+   * тридцать сантиметров книги в портретном окне не помещаются ни при какой
+   * высоте. Отступаем ровно настолько, чтобы поместились, и ни на сантиметр
+   * дальше — на широком мониторе кадр остался тем же, каким был.
+   *
+   * Глубину берём с поправкой на наклон: книга лежит, камера смотрит на неё
+   * под сорок градусов, и на экране её высота — не 21 сантиметр, а проекция.
+   */
+  const fit = fitDistance(SPREAD_WIDTH, COVER_H * 0.62, fov, aspect, 2);
+  const distance = Math.max(DESK_DISTANCE, fit);
+
   return {
-    position: new THREE.Vector3(0, 42, 50),
-    target: new THREE.Vector3(0, 1.2, 0),
+    position: DESK_TARGET.clone().addScaledVector(DESK_DIRECTION, distance),
+    target: DESK_TARGET.clone(),
     up: UP,
     free: true,
     minDistance: 26,
-    maxDistance: 150,
+    maxDistance: Math.max(150, distance + 40),
   };
 }
 
@@ -169,7 +194,7 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
     travel.current = {
       t: 0,
       // Наклон к тетради короче переезда: это движение головы, а не переход.
-      span: view === 'flat' || previous?.free === false ? LEAN : TRAVEL,
+      span: span(view === 'flat' || previous?.free === false ? LEAN : TRAVEL),
       from: camera.position.clone(),
       fromTarget: controls ? controls.target.clone() : new THREE.Vector3(),
       fromUp: camera.up.clone(),
@@ -191,6 +216,13 @@ export function CameraRig({ view, flat }: { view: CameraView; flat: FlatFocus | 
     const pinned = shot ? !shot.free : false;
 
     if (!move && focus <= 0 && !following.current && !pinned) return;
+
+    /*
+     * Пока камера едет, просим следующий кадр сами: рендер-луп работает по
+     * требованию (см. Viewport), и переезд, начатый одним кадром, без этого
+     * замер бы на первом же его шаге.
+     */
+    if (move || focus > 0) state.invalidate();
 
     /*
      * Положение камеры задаётся явно в каждом кадре, даже когда переезд уже

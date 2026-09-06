@@ -8,6 +8,7 @@ import { volumeExtent } from '@/core/library/volume';
 import { typographyKey } from '@/core/paginate/paginate';
 import { JournalPages } from './journal/JournalPages';
 import { useJournal } from '@/store/useJournal';
+import { useShell } from '@/store/useShell';
 
 export function Navigator() {
   const doc = useBook((s) => s.doc);
@@ -30,6 +31,13 @@ export function Navigator() {
   const desk = useLibrary((s) => s.desk);
 
   const newJournal = useJournal((s) => s.create);
+
+  /*
+   * На узком экране панель не стоит рядом со сценой, а лежит в выдвижном ящике
+   * вместе с инспектором: 236 пикселей рядом с вьюпортом на телефоне — это
+   * вьюпорт шириной в ладонь.
+   */
+  const compact = useShell((s) => s.device.compact);
 
   const writing = desk?.kind === 'journal';
 
@@ -54,7 +62,11 @@ export function Navigator() {
   }, [doc.toc]);
 
   return (
-    <aside className="flex h-full w-[236px] shrink-0 flex-col border-r border-ink-800 bg-ink-900">
+    <aside
+      className={`flex shrink-0 flex-col bg-ink-900 ${
+        compact ? 'w-full' : 'h-full w-[236px] border-r border-ink-800'
+      }`}
+    >
       <div className="border-b border-ink-800 px-3 py-3">
         <div
           className="truncate text-[13px] font-medium text-ash-100"

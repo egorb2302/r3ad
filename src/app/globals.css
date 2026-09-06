@@ -134,3 +134,60 @@ input[type='range']::-moz-range-thumb {
 .tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/*
+ * Видимый фокус (§17).
+ *
+ * Правило одно на всё приложение и через :focus-visible, а не :focus, — иначе
+ * рамка вспыхивает на каждом щелчке мышью, и её начинают отключать. Латунь
+ * взята из палитры интерфейса: это единственный цвет, который на тёмном фоне
+ * панелей и на бумаге плоского режима одинаково виден.
+ */
+:focus-visible {
+  outline: 2px solid var(--color-brass-500);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
+/*
+ * «Поменьше движения». Сцена читает эту же настройку сама (scene/motionPrefs) —
+ * здесь остаётся интерфейс: подсветки кнопок, наезд панелей, появление палитры.
+ * Не «отключить», а «мгновенно»: действие происходит, промежуточных кадров нет.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * Прокрутка внутри панели не должна утаскивать за собой страницу — на
+ * мобильных это выглядит как срыв всего экрана вниз в момент, когда дочитал
+ * список до конца.
+ */
+main,
+aside {
+  overscroll-behavior: contain;
+}
+
+/* Ссылка «читать текстом» для скринридера и клавиатуры: видна только в фокусе. */
+.skip {
+  position: absolute;
+  left: 8px;
+  top: -40px;
+  z-index: 50;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--color-ink-800);
+  color: var(--color-ash-100);
+  font-size: 12px;
+  transition: top 120ms;
+}
+.skip:focus {
+  top: 8px;
+}

@@ -25,13 +25,9 @@ import { paintGrain, paintWear } from '@/core/library/grain';
 import type { VolumeRecord } from '@/core/library/volume';
 import { paletteOf, PAPERS, stamped, type BookTheme } from '@/core/theme';
 import { VOLUME_HEIGHT } from './caseGeometry';
+import { ATLAS, CELL_H, CELL_W, COLS, SPINE_CAPACITY } from './atlasGrid';
 
-const ATLAS = 2048;
-const CELL_W = 128;
-const CELL_H = 512;
-const COLS = ATLAS / CELL_W;
-const ROWS = ATLAS / CELL_H;
-export const ATLAS_CAPACITY = COLS * ROWS;
+
 
 /**
  * Поля клетки, из которых берут цвет остальные грани тома.
@@ -137,7 +133,7 @@ class SpineAtlas {
 
   /** Свободный номер клетки, а если свободных нет — самый давно не нужный. */
   private claim(): number {
-    if (this.slots.size < ATLAS_CAPACITY) return this.slots.size;
+    if (this.slots.size < SPINE_CAPACITY) return this.slots.size;
 
     const victim = this.recent.find((id) => id !== this.recent[this.recent.length - 1]);
     const slot = victim ? this.slots.get(victim) : undefined;

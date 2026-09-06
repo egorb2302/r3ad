@@ -31,6 +31,9 @@ import {
 } from '@/store/useShare';
 import { Notice } from '../primitives';
 import { useBoot } from '../boot';
+import { useDevice } from '../useDevice';
+import { useShell } from '@/store/useShell';
+import { PlainBody } from '../plain/PlainBody';
 
 const Viewport = dynamic(() => import('@/scene/Viewport').then((m) => m.Viewport), {
   ssr: false,
@@ -47,10 +50,21 @@ export function SnapshotView({ id }: { id: string }) {
   const [snapshot, setSnapshot] = useState<LoadedSnapshot | null>(null);
   const [forked, setForked] = useState(false);
 
+  useDevice();
   const boot = useBoot();
   const router = useRouter();
   const view = useLibrary((s) => s.view);
   const setView = useLibrary((s) => s.setView);
+
+  /*
+   * Чужая ссылка открывается на чём попало, и это ровно тот случай, ради
+   * которого заведён плоский режим (§17): телефон без WebGL2 показывает полку
+   * списком, а не чёрным прямоугольником с извинениями. Свой выбор `?mode=flat`
+   * действует и здесь — ссылку могли прислать именно такой.
+   */
+  const plain = useShell((s) => s.mode === 'plain');
+  const canScene = useShell((s) => s.device.scene);
+  const setMode = useShell((s) => s.setMode);
 
   /*
    * Состояние здесь не трогается до первого `await` — эффект ниже зовёт эту
@@ -134,6 +148,16 @@ export function SnapshotView({ id }: { id: string }) {
               {view === 'case' ? 'desk' : 'bookcase'}
             </button>
           ) : null}
+          {phase === 'ready' && canScene ? (
+            <button
+              type="button"
+              onClick={() => setMode(plain ? 'scene' : 'plain')}
+              className="rounded bg-ink-800 px-2 py-0.5 text-[10.5px] text-ash-300 transition-colors hover:bg-ink-700 hover:text-ash-100"
+              title={plain ? 'Back to the shelf in 3D' : 'Show this shelf as plain text'}
+            >
+              {plain ? '3D' : 'text'}
+            </button>
+          ) : null}
           {phase === 'ready' ? (
             <button
               type="button"
@@ -161,7 +185,11 @@ export function SnapshotView({ id }: { id: string }) {
 
       <main className="relative min-h-0 flex-1">
         {phase === 'ready' && boot === 'ready' ? (
-          <Viewport />
+          plain ? (
+            <PlainBody />
+          ) : (
+            <Viewport />
+          )
         ) : (
           <div className="h-full w-full bg-ink-950" />
         )}
