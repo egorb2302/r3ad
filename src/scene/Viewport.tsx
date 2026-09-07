@@ -32,6 +32,7 @@ import { Book } from './Book';
 import { Leaf } from './Leaf';
 import { blockThickness, COVER_H, COVER_T, COVER_W, GUTTER, TRIM_H, TRIM_W } from './geometry';
 import { MAX_SPEED, motion, planTurn, releaseTarget, resetMotion, type TurnPlan } from './turn';
+import { ContextGuard } from './ContextGuard';
 import { flight, setStageMounted } from './flight';
 import { Bookcase } from './bookcase/Bookcase';
 import { Spines } from './bookcase/Spines';
@@ -97,7 +98,17 @@ export function Viewport() {
    */
   useEffect(() => {
     setStageMounted(true);
-    return () => setStageMounted(false);
+    return () => {
+      setStageMounted(false);
+      /*
+       * Уходя, доигрываем чужое. Сцену размонтирует переход в плоский режим, и
+       * начатый полёт остался бы висеть: там его некому считать, а пока он
+       * висит, библиотека не отдаёт ни одной команды. Сторож в сторе довёл бы
+       * дело до конца и сам, но ждать секунды там, где всё известно сейчас,
+       * незачем.
+       */
+      useLibrary.getState().arrived();
+    };
   }, []);
 
   /*
@@ -274,6 +285,8 @@ export function Viewport() {
       camera={{ position: [0, 38, 53], fov: 30, near: 0.5, far: 600 }}
     >
       <Idle onSettled={() => setLoop('demand')} />
+      {/* Контекст могут отобрать в любой момент (см. scene/ContextGuard). */}
+      <ContextGuard />
       <FrameGuard target={device.kind === 'phone' ? 26 : 48} onSlow={() => setSlow(true)} />
       {/* Свет, фон и туман — пресетом (см. scene/lighting). */}
       <Lighting scene={scene} />
@@ -530,7 +543,7 @@ function TurnInput({ onStart }: TurnInputProps) {
       state.time = now;
     };
 
-    const onUp = () => {
+    const release = (committing: boolean) => {
       const state = drag.current;
       drag.current = null;
       if (controls) controls.enabled = true;
@@ -538,8 +551,19 @@ function TurnInput({ onStart }: TurnInputProps) {
 
       motion.dragging = false;
       // Щелчок без протяжки — тоже листание: не заставлять же тащить каждую страницу.
-      motion.target = state.moved ? releaseTarget(motion) : state.commitAt;
+      if (state.moved) motion.target = releaseTarget(motion);
+      else motion.target = committing ? state.commitAt : state.from;
     };
+
+    const onUp = () => release(true);
+
+    /*
+     * Уход фокуса — это не «отпустили», а «перестали держать». Разница видна на
+     * листе, который успели прижать, но не успели протащить: отпускание такой
+     * лист долистывает (щелчок — тоже листание), а вот системное окно, уведшее
+     * фокус, ничего пролистать не просило. Лист возвращается на место.
+     */
+    const onLeave = () => release(false);
 
     const onDown = (event: PointerEvent) => {
       // Пока лист в воздухе, за следующий не берёмся.
@@ -576,12 +600,23 @@ function TurnInput({ onStart }: TurnInputProps) {
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     window.addEventListener('pointercancel', onUp);
+    /*
+     * И потеря фокуса — тоже «отпустили». Отпускание страницы приходит не
+     * всегда: окно уводит из-под пальца системное окно — выбор файла, запрос
+     * записи экрана, переключение приложений на телефоне, — и `pointerup` не
+     * приходит ни туда, ни сюда. Лист остаётся зажатым навсегда: пружина не
+     * считает перетаскиваемый лист, переворот не заканчивается, а начать
+     * следующий нельзя, пока не кончился этот. То есть книга перестаёт
+     * листаться вовсе — от одного пропавшего события.
+     */
+    window.addEventListener('blur', onLeave);
 
     return () => {
       canvas.removeEventListener('pointerdown', onDown);
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('blur', onLeave);
     };
   }, [controls, gl, onStart, pointerToBook, progressAt]);
 

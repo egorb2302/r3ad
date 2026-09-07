@@ -19,7 +19,8 @@ import { useEffect } from 'react';
 import { chapterAtPage, plainFontPx } from '@/core/plain';
 import { useBook } from '@/store/useBook';
 import { useLibrary } from '@/store/useLibrary';
-import { useShell } from '@/store/useShell';
+import { forcedMode, useShell } from '@/store/useShell';
+import { retryScene } from '../useDevice';
 import { PlainBody } from './PlainBody';
 
 /** Пределы кегля те же, что в инспекторе: это одна и та же настройка. */
@@ -180,9 +181,25 @@ export function PlainReader() {
         </div>
       </header>
 
-      {reason === 'no-webgl' ? (
-        <p className="shrink-0 border-b border-brass-900/60 bg-brass-950/40 px-3 py-1.5 text-[11px] text-brass-300">
-          This browser has no WebGL2, so the book is shown as text. Everything else works.
+      {/*
+        Плашка объясняет не выбор, а обстоятельства, и потому у неё есть кнопка.
+        Отказ железа не вечен: контекст возвращают, ускорение включают обратно,
+        запись экрана заканчивается. Без кнопки единственным способом проверить,
+        не прошло ли это, была бы перезагрузка страницы — а вместе с ней ушли бы
+        и место в книге, и незаписанная страница тетради.
+      */}
+      {forcedMode(reason) ? (
+        <p className="flex shrink-0 flex-wrap items-center gap-2 border-b border-brass-900/60 bg-brass-950/40 px-3 py-1.5 text-[11px] text-brass-300">
+          {reason === 'no-webgl'
+            ? 'This browser has no WebGL2, so the book is shown as text. Everything else works.'
+            : 'The 3D view lost its graphics context, so the book is shown as text. Everything else works.'}
+          <button
+            type="button"
+            onClick={retryScene}
+            className="rounded bg-brass-900/60 px-2 py-0.5 text-[10.5px] text-brass-200 transition-colors hover:bg-brass-800/70 hover:text-brass-100"
+          >
+            Try 3D again
+          </button>
         </p>
       ) : null}
 

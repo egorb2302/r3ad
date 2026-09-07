@@ -63,6 +63,21 @@ function deskRecord(doc: ContentDoc, source: VolumeSource): VolumeRecord {
 }
 
 /**
+ * Предельный срок полёта.
+ *
+ * Втрое больше самого пути: закрывание и перелёт занимают 0.52 + 0.9 секунды на
+ * машине, которая их рисует, и запас нужен только на медленную.
+ */
+const FLIGHT_LIMIT_MS = 4200;
+
+let watchdog: ReturnType<typeof setTimeout> | null = null;
+
+function clearWatchdog() {
+  if (watchdog) clearTimeout(watchdog);
+  watchdog = null;
+}
+
+/**
  * Досчитать полёт там, где его некому играть.
  *
  * Анимацию доводит до конца кадровый цикл сцены, и пока он не сообщил о посадке,
@@ -70,9 +85,25 @@ function deskRecord(doc: ContentDoc, source: VolumeSource): VolumeRecord {
  * вовсе — и без этой строчки «снять книгу с полки» там оставляло бы её в
  * воздухе навсегда. Мгновенно, а не быстро: показывать нечего, значит и время
  * тратить не на что.
+ *
+ * Сцена бывает и на месте, а кадров всё равно нет. Вкладка ушла в фон, экран
+ * телефона погас, браузер отнял контекст WebGL — и полёт замирает там, где его
+ * застали. Плохо здесь не то, что книга повисла: незавершённый полёт запирает
+ * библиотеку целиком (`take`, `shelve` и кнопка перехода смотрят на него), и
+ * человек остаётся с интерфейсом, который ни на что не отвечает. Поэтому у
+ * полёта есть предельный срок: не доиграли — считаем, что долетели. Книга
+ * окажется там, куда её отправили, и это честнее запертого экрана.
  */
 function land() {
-  if (!stage.mounted) useLibrary.getState().arrived();
+  clearWatchdog();
+  if (!stage.mounted) {
+    useLibrary.getState().arrived();
+    return;
+  }
+  watchdog = setTimeout(() => {
+    watchdog = null;
+    useLibrary.getState().arrived();
+  }, FLIGHT_LIMIT_MS);
 }
 
 export const useLibrary = create<LibraryState>((set, get) => ({
@@ -264,6 +295,23 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     });
   },
 }));
+
+/*
+ * Полёта не стало — значит, и анимации нет.
+ *
+ * Обнулить `flight` умеет не только посадка: полку целиком заменяет снимок по
+ * ссылке и подъём из базы, и делают они это через `setState`, мимо `arrived`.
+ * Изменяемый объект анимации об этом бы не узнал, а он решает, показывать ли
+ * книгу на столе (см. Book.tsx), — и книга осталась бы невидимой до следующего
+ * полёта. Одной подпиской, а не строчкой в каждом вызывающем: мест, где полка
+ * меняется целиком, будет больше, чем два.
+ */
+useLibrary.subscribe((state, previous) => {
+  if (previous.flight && !state.flight) {
+    clearWatchdog();
+    stopFlight();
+  }
+});
 
 /*
  * Стол → библиотека. Одна подписка вместо вызовов из useBook: так стор тома

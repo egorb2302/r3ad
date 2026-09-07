@@ -21,7 +21,17 @@ import { DEFAULT_PROFILE, type DeviceProfile } from '@/core/device';
 import { setInstantMotion } from '@/scene/motionPrefs';
 
 export type ShellMode = 'scene' | 'plain';
-export type ModeReason = 'user' | 'url' | 'no-webgl';
+export type ModeReason = 'user' | 'url' | 'no-webgl' | 'gpu-lost';
+
+/**
+ * Режим назначен, а не выбран.
+ *
+ * Две причины из четырёх — не решение человека, а обстоятельства: WebGL2 нет
+ * вовсе или контекст отняли на ходу (§16). Отличать их от выбора приходится в
+ * трёх местах — адрес, возврат в сцену и плашка, — и правило стоит держать
+ * одним куском, чтобы «назначенный» нигде не разошёлся с «выбранным».
+ */
+export const forcedMode = (reason: ModeReason) => reason === 'no-webgl' || reason === 'gpu-lost';
 
 /** Что показывает палитра: команды или поиск по книге (§12.3). */
 export type PaletteMode = 'commands' | 'search';
@@ -89,9 +99,9 @@ export const useShell = create<ShellState>((set, get) => ({
   setMode: (mode, reason = 'user') => {
     if (get().mode === mode && get().reason === reason) return;
     set({ mode, reason });
-    // Отсутствие WebGL в адресе не отражаем: это не выбор человека, и на другой
-    // машине та же ссылка обязана открыться сценой.
-    if (reason !== 'no-webgl') writeMode(mode);
+    // Назначенный режим в адресе не отражаем: это не выбор человека, и на
+    // другой машине та же ссылка обязана открыться сценой.
+    if (!forcedMode(reason)) writeMode(mode);
   },
 
   togglePanels: (visible) => set({ panels: visible ?? !get().panels }),
@@ -128,6 +138,16 @@ export const useShell = create<ShellState>((set, get) => ({
 
     // Сцены нет — спорить не о чем: показываем то, что показать можем.
     if (!device.scene && get().mode !== 'plain') get().setMode('plain', 'no-webgl');
+
+    /*
+     * И обратно. В текст человека отправил не он, а отказ железа, и держать его
+     * там после того, как железо ответило, не за что: проба повторяется по
+     * кнопке (см. ui/useDevice), и её положительный ответ — единственное, чего
+     * плоский режим здесь ждал.
+     */
+    if (device.scene && get().mode === 'plain' && forcedMode(get().reason)) {
+      get().setMode('scene');
+    }
   },
 
   setReduced: (reduced) => {

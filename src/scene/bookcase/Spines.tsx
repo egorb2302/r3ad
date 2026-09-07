@@ -285,13 +285,32 @@ export function Spines({
       if (!held.moved) onSelect(held.id);
     };
 
+    /*
+     * Уход фокуса — не выбор. Нажатие без протяжки наклоняет том наружу, а
+     * второе такое же вытаскивает его с полки, и делать это за человека потому,
+     * что поверх окна открылся системный диалог, нельзя. Всё, что нужно, —
+     * перестать держать.
+     */
+    const leave = () => {
+      drag.current = null;
+      setOrbit(store, true);
+    };
+
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);
+    /*
+     * Потеря фокуса считается отпусканием. Иначе окно, уведённое системным
+     * диалогом посреди перетаскивания, оставляло бы корешок зажатым: ряд
+     * продолжал бы расступаться под курсором, а камера — не вращаться, потому
+     * что орбиту возвращает как раз отпускание.
+     */
+    window.addEventListener('blur', leave);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      window.removeEventListener('blur', leave);
     };
   }, [indexAt, onReorder, onSelect, pointerToShelf, shelfAt, store]);
 

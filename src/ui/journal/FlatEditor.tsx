@@ -128,11 +128,29 @@ export function FlatEditor({ tint }: { tint: PaperTint }) {
     const up = (e: KeyboardEvent) => {
       if (e.code === 'Space') space.current = false;
     };
+
+    /*
+     * Уход фокуса разжимает пробел.
+     *
+     * Отпускание клавиши приходит тому окну, которое в этот момент активно, а
+     * им может оказаться и не наше: пробел зажат, поверх выскочило системное
+     * окно — запрос на запись экрана, выбор файла, переключение приложений, — и
+     * `keyup` уходит туда. Зажатым пробел при этом остаётся навсегда, а зажатый
+     * пробел превращает любой инструмент в руку: перо перестаёт рисовать, и
+     * страница вместо штриха ездит под пальцем. Со стороны это выглядит ровно
+     * как «тетрадь сломалась».
+     */
+    const blur = () => {
+      space.current = false;
+    };
+
     window.addEventListener('keydown', down);
     window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
     return () => {
       window.removeEventListener('keydown', down);
       window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
     };
   }, []);
 
@@ -377,6 +395,18 @@ export function FlatEditor({ tint }: { tint: PaperTint }) {
   const onPointerMove = (event: React.PointerEvent) => {
     if (!page) return;
 
+    /*
+     * Движение без единой нажатой кнопки, а работа идёт — значит, отпускание
+     * потеряно: его забрало окно, уведённое из-под пальца. Заканчиваем работу
+     * тем же, чем закончило бы отпускание. Без этой проверки штрих оставался бы
+     * открытым, и перо продолжало бы рисовать за курсором, которого никто не
+     * прижимает, — по всей странице, до самого нажатия.
+     */
+    if (event.buttons === 0 && (drag.current || stroke.current)) {
+      onPointerUp();
+      return;
+    }
+
     if (drag.current?.mode === 'pan') {
       setPan({
         x: drag.current.panX + (event.clientX - drag.current.startX),
@@ -535,6 +565,10 @@ export function FlatEditor({ tint }: { tint: PaperTint }) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        // Захват указателя теряется вместе с фокусом окна, и отпускания за ним
+        // не приходит. Обработчик идемпотентен: после обычного отпускания
+        // заканчивать уже нечего.
+        onLostPointerCapture={onPointerUp}
         onPointerLeave={() => {
           pointer.current = null;
           paintLive();

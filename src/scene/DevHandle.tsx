@@ -22,7 +22,13 @@ export function DevHandle() {
     const handle = globalThis as { __r3adScene?: unknown };
     handle.__r3adScene = store;
     return () => {
-      delete handle.__r3adScene;
+      /*
+       * Убираем за собой, только если убирать своё. R3F разбирает корень холста
+       * не сразу, и при возврате из плоского режима старый вьюпорт прощается
+       * уже после того, как новый представился: безусловное удаление стирало бы
+       * свежую ссылку, и сцену в дев-сборке было бы нечем осмотреть.
+       */
+      if (handle.__r3adScene === store) delete handle.__r3adScene;
     };
   }, [store]);
 
