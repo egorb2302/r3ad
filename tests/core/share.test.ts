@@ -22,7 +22,8 @@ import {
   unsealBytes,
   unsealJson,
 } from '@/core/share/lock';
-import { BINDINGS, DEFAULT_SCENE, decodeScene, encodeScene } from '@/core/theme';
+import { SHIPPED, shippedLibrary } from '@/core/library/shipped';
+import { BINDINGS, DEFAULT_SCENE, decodeScene, encodeScene, encodeTheme } from '@/core/theme';
 import { DEFAULT_TYPOGRAPHY } from '@/core/typography';
 
 // Свет и тени едут в адрес одной цифрой, и сцена по умолчанию (0.55) в неё не
@@ -88,6 +89,58 @@ describe('полка в адресе', () => {
   });
 });
 
+describe('книги из комплекта в адресе', () => {
+  it('едут именем файла и поднимаются настоящими, под своими идентификаторами', () => {
+    const records = shippedLibrary();
+    const s = shelfFromVolumes('Shelf', records, SCENE);
+    // Тема каталожная — в адресе ей делать нечего, а файл — есть.
+    expect(s.volumes.every((v) => v.file && v.theme === '')).toBe(true);
+
+    const back = decodeShelf(encodeShelf(s));
+    expect(back).toEqual(s);
+
+    const again = volumesFromShelf(back);
+    expect(again.map((v) => v.id)).toEqual(records.map((r) => r.id));
+    expect(again.every((v) => v.source.kind === 'shipped' && v.format === 'epub')).toBe(true);
+    expect(again.map((v) => v.charCount)).toEqual(SHIPPED.map((b) => b.chars));
+  });
+
+  it('переодетая книга из комплекта везёт тему, и она переживает адрес', () => {
+    const [record] = shippedLibrary();
+    const dressed = { ...record, theme: BINDINGS[0].theme };
+    const s = shelfFromVolumes('x', [dressed], DEFAULT_SCENE);
+    expect(s.volumes[0].theme).not.toBe('');
+
+    const [again] = volumesFromShelf(decodeShelf(encodeShelf(s)));
+    expect(again.source).toEqual(record.source);
+    expect(encodeTheme(again.theme)).toBe(encodeTheme(BINDINGS[0].theme));
+  });
+
+  it('файла больше нет в комплекте — том становится синтетикой той же толщины', () => {
+    const s = decodeShelf(
+      encodeShelf({
+        title: 'x',
+        scene: SCENE,
+        volumes: [
+          { kind: 'volume', title: 'Gone', author: 'A. Nobody', chars: 12_345, theme: '', file: 'gone.epub' },
+        ],
+      }),
+    );
+    expect(s.volumes[0].file).toBe('gone.epub');
+
+    const [v] = volumesFromShelf(s);
+    expect(v.source.kind).toBe('synthetic');
+    expect(v.format).toBe('synthetic');
+    expect(v.charCount).toBe(12_345);
+  });
+
+  it('старая строка без шестой колонки читается как прежде', () => {
+    const s = decodeShelf(['x\x1f', 'v\x1fOld\x1fA\x1f1000\x1f'].join('\x1e'));
+    expect(s.volumes[0]).toEqual({ kind: 'volume', title: 'Old', author: 'A', chars: 1000, theme: '' });
+    expect('file' in s.volumes[0]).toBe(false);
+  });
+});
+
 describe('замок', () => {
   it('ключ из фрагмента открывает конверт, соли в нём нет', async () => {
     const lock = await newLock();
@@ -148,6 +201,16 @@ describe('бандл', () => {
     expect(bundle.format).toBe(BUNDLE_FORMAT);
     expect(bundle.version).toBe(BUNDLE_VERSION);
     expect(bundle.volumes).toHaveLength(3);
+    expect(bundle.assets).toEqual([]);
+    expect(parseBundle(JSON.parse(JSON.stringify(bundle)))).toEqual(bundle);
+  });
+
+  it('книга из комплекта едет с текстом даже в снимок «только внешний вид»', async () => {
+    const shipped = shippedLibrary().slice(0, 2);
+    const bundle = await buildBundle({ ...input(), volumes: shipped }, 'appearance');
+    expect(bundle.volumes.map((v) => v.source)).toEqual(
+      shipped.map((v) => ({ kind: 'shipped', file: (v.source as { file: string }).file })),
+    );
     expect(bundle.assets).toEqual([]);
     expect(parseBundle(JSON.parse(JSON.stringify(bundle)))).toEqual(bundle);
   });

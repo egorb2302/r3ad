@@ -50,8 +50,12 @@ export const BUNDLE_FORMAT = 'r3ad';
  * Третья: форма записи та же, изменилась выводимая тема — светлее и без
  * потёртости. Номер поднят ради одного: узнать при чтении, что темы в записи
  * выводились старыми правилами, и заменить нетронутые (`refreshVolume`).
+ *
+ * Четвёртая: у источника появился вид `shipped` — книга из комплекта сайта
+ * (§21.2). Старый сайт такой записи не знает и споткнулся бы на ней молча;
+ * номер даёт ему отказаться вслух.
  */
-export const BUNDLE_VERSION = 3;
+export const BUNDLE_VERSION = 4;
 
 /**
  * Что кладём (SPEC §11.2). Порядок — по возрастанию: каждый следующий объём
@@ -95,6 +99,8 @@ export type BundleSource =
    */
   | { kind: 'compiled'; clippingIds: string[] }
   | { kind: 'file'; name: string; format: DocFormat; assetHash: string }
+  /** Книга из комплекта сайта: имени файла достаточно, байты у получателя есть. */
+  | { kind: 'shipped'; file: string }
   | { kind: 'absent'; was: 'file' | 'journal' | 'compiled' };
 
 export interface BundleVolume {
@@ -232,12 +238,17 @@ export async function buildBundle(input: BundleInput, scope: ShareScope): Promis
  * Синтетика едет при любом объёме, и это не дыра в «контент не выгружается».
  * Синтетический том — не текст человека, а зерно генератора на полсотни байт:
  * он воспроизводится на чужой машине посимвольно, и без него дефолтный снимок
- * полки был бы рядом заведомо неоткрываемых книг.
+ * полки был бы рядом заведомо неоткрываемых книг. Книга из комплекта сайта —
+ * по той же причине: её текст лежит не у отправителя, а на сайте, и у
+ * получателя он ровно тот же.
  */
 async function packSource(source: VolumeSource, scope: ShareScope): Promise<BundleSource> {
   switch (source.kind) {
     case 'synthetic':
       return { kind: 'synthetic', options: source.options };
+
+    case 'shipped':
+      return { kind: 'shipped', file: source.file };
 
     case 'journal':
       return includes(scope, 'journal')

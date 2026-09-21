@@ -31,6 +31,15 @@ import type { SyntheticOptions } from '../text/synthetic';
 export type VolumeSource =
   | { kind: 'synthetic'; options: SyntheticOptions }
   | { kind: 'file'; file: File }
+  /**
+   * Книга из комплекта сайта (`public/demo/`, см. `library/shipped.ts`).
+   *
+   * Только имя файла: байты лежат на том же адресе, что и шрифты, и
+   * приезжают при открытии — а до тех пор запись весит столько же, сколько у
+   * синтетики. В снимок едет при любом объёме шеринга: у получателя тот же
+   * сайт, а с ним и та же книга.
+   */
+  | { kind: 'shipped'; file: string }
   /** У тетради источник — она сама: текста, который надо разбирать, там нет. */
   | { kind: 'journal'; journalId: string }
   /**

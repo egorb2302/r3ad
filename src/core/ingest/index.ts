@@ -8,6 +8,7 @@
  */
 import { docStats, type ContentDoc } from '../content';
 import { generateBook, type SyntheticOptions } from '../text/synthetic';
+import { SHIPPED_BASE } from '../library/shipped';
 import { readEpub, type IngestProgress } from './epub';
 import { readPlain } from './plain';
 
@@ -67,6 +68,23 @@ export async function openFile(file: File, onProgress?: IngestProgress): Promise
   }
 
   return doc;
+}
+
+/**
+ * Книга из комплекта сайта — тем же путём, что и файл с диска.
+ *
+ * Разница ровно в том, откуда байты: не из окна, а с нашего же адреса. `File`
+ * с именем, а не `Blob`, потому что путь разбора выбирается по расширению.
+ * Ошибка сети или 404 — обычная ошибка открытия: книга на полке остаётся, а
+ * что с ней не так, пишется там же, где пишут про нечитаемый EPUB.
+ */
+export async function openShipped(file: string, onProgress?: IngestProgress): Promise<ContentDoc> {
+  const response = await fetch(`${SHIPPED_BASE}${file}`);
+  if (!response.ok) {
+    throw new Error(`${file} is not on this site (HTTP ${response.status}).`);
+  }
+  const blob = await response.blob();
+  return openFile(new File([blob], file, { type: 'application/epub+zip' }), onProgress);
 }
 
 /**

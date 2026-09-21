@@ -10,7 +10,7 @@
 import { create } from 'zustand';
 import type { ContentDoc } from '@/core/content';
 import { compileClippings } from '@/core/clipping/compile';
-import { openFile, syntheticDoc } from '@/core/ingest';
+import { openFile, openShipped, syntheticDoc } from '@/core/ingest';
 import {
   computeMetrics,
   DEFAULT_TYPOGRAPHY,
@@ -386,9 +386,14 @@ export const useBook = create<BookState>((set, get) => ({
               title: volume.title,
             })
           : {
-              ...(await openFile(volume.source.file, (done, total) =>
-                set({ progress: { done, total } }),
-              )),
+              ...(volume.source.kind === 'shipped'
+                ? // Книга из комплекта сайта: байты с нашего адреса, разбор тот же.
+                  await openShipped(volume.source.file, (done, total) =>
+                    set({ progress: { done, total } }),
+                  )
+                : await openFile(volume.source.file, (done, total) =>
+                    set({ progress: { done, total } }),
+                  )),
               // Личность тома задаёт библиотека, а не разбор: по этому
               // идентификатору книга находит свой корешок.
               id: volume.id,

@@ -28,6 +28,7 @@ import {
   type SceneTheme,
 } from '../theme';
 import { optionsForExtent } from '../text/synthetic';
+import { shippedByFile, shippedRecord, shippedTheme } from '../library/shipped';
 import type { VolumeRecord } from '../library/volume';
 import { fromBase64Url, toBase64Url } from './lock';
 
@@ -60,6 +61,15 @@ interface CompactVolume {
   chars: number;
   /** Упакованная тема или пустая строка, если она выводится из названия. */
   theme: string;
+  /**
+   * Имя файла у книги из комплекта сайта (`library/shipped.ts`).
+   *
+   * Шестая колонка, и только у таких томов: по ней получатель поднимает
+   * настоящий текст, а не синтетику той же толщины. Название и объём при этом
+   * едут как у всех — ссылка, прочитанная сайтом, который этой колонки ещё не
+   * знал, даёт ту же полку, что и раньше.
+   */
+  file?: string;
 }
 
 export interface CompactShelf {
@@ -77,15 +87,15 @@ export function encodeShelf(shelf: CompactShelf): string {
   const rows = [[clean(shelf.title), encodeScene(shelf.scene)].join(FIELD)];
 
   for (const volume of shelf.volumes) {
-    rows.push(
-      [
-        volume.kind === 'journal' ? 'j' : 'v',
-        clean(volume.title),
-        clean(volume.author),
-        String(Math.round(volume.chars)),
-        volume.theme,
-      ].join(FIELD),
-    );
+    const row = [
+      volume.kind === 'journal' ? 'j' : volume.file ? 'b' : 'v',
+      clean(volume.title),
+      clean(volume.author),
+      String(Math.round(volume.chars)),
+      volume.theme,
+    ];
+    if (volume.file) row.push(clean(volume.file));
+    rows.push(row.join(FIELD));
   }
 
   return rows.join(ROW);
@@ -96,7 +106,7 @@ export function decodeShelf(text: string): CompactShelf {
   const volumes: CompactVolume[] = [];
 
   for (const row of rows.slice(1)) {
-    const [kind, title, author, chars, theme] = row.split(FIELD);
+    const [kind, title, author, chars, theme, file] = row.split(FIELD);
     if (!title) continue;
     volumes.push({
       kind: kind === 'j' ? 'journal' : 'volume',
@@ -104,6 +114,7 @@ export function decodeShelf(text: string): CompactShelf {
       author: author ?? '',
       chars: Number(chars) || 0,
       theme: theme ?? '',
+      ...(kind === 'b' && file ? { file } : {}),
     });
   }
 
@@ -162,15 +173,25 @@ export function shelfFromVolumes(
       title: volume.title,
       author: volume.author,
       chars: volume.charCount || estimatedChars(volume),
-      // Тему пишем, только если она не выводится из названия: у книги с
-      // обложкой цвет взят из её доминанты, у остальных — из хэша, и повторять
-      // в адресе то, что и так посчитается, значит платить за воздух.
-      theme: isDerived(volume.theme, seedOf(volume)) ? '' : encodeTheme(volume.theme),
+      // Тему пишем, только если она не выводится: у книги с обложкой цвет
+      // взят из её доминанты, у остальных — из хэша, и повторять в адресе то,
+      // что и так посчитается, значит платить за воздух. У книги из комплекта
+      // «выводится» значит «совпадает с каталожной» — там доминанта записана.
+      theme: isDefault(volume) ? '' : encodeTheme(volume.theme),
+      ...(volume.source.kind === 'shipped' ? { file: volume.source.file } : {}),
     })),
   };
 }
 
 const seedOf = (volume: { title: string; author: string }) => `${volume.title}|${volume.author}`;
+
+function isDefault(volume: VolumeRecord): boolean {
+  if (volume.source.kind === 'shipped') {
+    const book = shippedByFile(volume.source.file);
+    if (book) return JSON.stringify(volume.theme) === JSON.stringify(shippedTheme(book));
+  }
+  return isDerived(volume.theme, seedOf(volume));
+}
 
 /** У тетради знаков нет — объём ей задают страницы. Для корешка их надо перевести. */
 function estimatedChars(volume: VolumeRecord): number {
@@ -186,9 +207,20 @@ function estimatedChars(volume: VolumeRecord): number {
  * фамилия и толщина, а знаки под ними генератор насыпал свои. Это честнее
  * пустого тома: ссылка обещала внешний вид полки, и внешний вид полки —
  * включая то, что книгу можно снять и полистать, — она отдаёт целиком.
+ *
+ * Книга из комплекта сайта — исключение в лучшую сторону: её текст у
+ * получателя есть, и том поднимается настоящим, под своим же идентификатором.
+ * Файла с таким именем в комплекте нет (каталог сменился) — том становится
+ * синтетическим, как все остальные.
  */
 export function volumesFromShelf(shelf: CompactShelf): VolumeRecord[] {
   return shelf.volumes.map((row, index) => {
+    const book = row.file ? shippedByFile(row.file) : undefined;
+    if (book) {
+      const record = shippedRecord(book, index);
+      return row.theme ? { ...record, theme: decodeTheme(row.theme, record.theme) } : record;
+    }
+
     const id = `shared-${String(index + 1).padStart(2, '0')}`;
     const derived = themeFor(seedOf(row));
 

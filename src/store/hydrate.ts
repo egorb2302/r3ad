@@ -185,6 +185,9 @@ function unpackSource(source: BundleSource, clips: Record<string, Clipping>): Vo
     case 'synthetic':
       return { kind: 'synthetic', options: source.options };
 
+    case 'shipped':
+      return { kind: 'shipped', file: source.file };
+
     case 'journal':
       return { kind: 'journal', journalId: source.journalId };
 

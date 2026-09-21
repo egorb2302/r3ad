@@ -2,13 +2,15 @@
  * Демонстрационная библиотека.
  *
  * Пустой стеллаж — плохая первая страница: смотреть не на что, а вся затея
- * ровно про то, как выглядит ряд книг. До того как появится загрузка реальных
- * томов из общественного достояния (SPEC §21.2), полку населяет синтетика.
+ * ровно про то, как выглядит ряд книг. Ряд начинают шесть настоящих книг из
+ * общественного достояния (SPEC §21.2, `shipped.ts`), остальное добирает
+ * синтетика — стеллаж рассчитан на сорок томов, и шесть корешков на нём
+ * выглядели бы забытыми.
  *
- * Тома здесь — не картинки и не заглушки. У каждого свой текст, свой объём и
- * свой корешок, и любой можно снять с полки и читать: сгенерированная книга
- * проходит тот же конвейер, что и EPUB с диска. Отличается только то, откуда
- * взялись знаки.
+ * Синтетические тома — не картинки и не заглушки. У каждого свой текст, свой
+ * объём и свой корешок, и любой можно снять с полки и читать: сгенерированная
+ * книга проходит тот же конвейер, что и EPUB с диска. Отличается только то,
+ * откуда взялись знаки.
  *
  * Объём задан страницами при наборе по умолчанию — так таблицу можно читать
  * глазами. В знаки он переводится тут же: числом знаков оперирует оценка
@@ -18,6 +20,7 @@ import { computeMetrics, DEFAULT_TYPOGRAPHY } from '../typography';
 import { optionsForExtent } from '../text/synthetic';
 import { demoJournal } from '../journal/demo';
 import { hashString } from './palette';
+import { shippedLibrary } from './shipped';
 import { themeFor } from '../theme';
 import { charsPerPage, journalRecord, type VolumeRecord } from './volume';
 
@@ -57,12 +60,6 @@ const CATALOGUE: [title: string, author: string, pages: number][] = [
   ['Spine Label', 'N. Kowalczyk', 136],
   ['Ligature', 'P. Sandoval', 168],
   ['The Uncut Book', 'L. Farkas', 392],
-  ['Grain Direction', 'H. Tanaka', 256],
-  ['Deckle', 'C. Mihailović', 200],
-  ['The Shelf Mark', 'A. Rasmussen', 304],
-  ['Gathering and Sewing', 'D. Oyelaran', 344],
-  ['Ascender, Descender', 'M. Rinaldi', 176],
-  ['The Last Impression', 'K. Sørensen', 528],
 ];
 
 /**
@@ -74,6 +71,8 @@ const CATALOGUE: [title: string, author: string, pages: number][] = [
 const REFERENCE_CHARS_PER_PAGE = charsPerPage(computeMetrics(DEFAULT_TYPOGRAPHY, 'desktop'));
 
 export function demoLibrary(): VolumeRecord[] {
+  const shipped = shippedLibrary();
+
   const volumes: VolumeRecord[] = CATALOGUE.map(([title, author, pages], index) => {
     const id = `demo-${String(index + 1).padStart(2, '0')}`;
     const charCount = pages * REFERENCE_CHARS_PER_PAGE;
@@ -93,12 +92,13 @@ export function demoLibrary(): VolumeRecord[] {
         kind: 'synthetic' as const,
         options: optionsForExtent(charCount, { seed: hashString(id), title, author }),
       },
-      // Порядок поступления держим осмысленным: полка заполнялась слева направо.
-      addedAt: index,
+      // Порядок поступления держим осмысленным: полка заполнялась слева
+      // направо, и настоящие книги встали на неё первыми.
+      addedAt: shipped.length + index,
     };
   });
 
   // Тетрадь стоит там же, где книги: на полке между ними разницы нет.
   volumes.push(journalRecord(demoJournal()));
-  return volumes;
+  return [...shipped, ...volumes];
 }
