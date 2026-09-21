@@ -198,7 +198,11 @@ export function Navigator() {
                 <span className="truncate" title={chapter.title}>
                   {chapter.title}
                 </span>
-                <span className="tabular shrink-0 text-[10.5px] text-ash-400">
+                <span
+                  className="tabular shrink-0 text-[10.5px] text-ash-400"
+                  title={chapter.settled ? undefined : 'Estimated — the chapters before this one are still being composed'}
+                >
+                  {chapter.settled ? '' : '≈'}
                   {chapter.startPage + 1}
                 </span>
               </button>

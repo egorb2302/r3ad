@@ -213,6 +213,7 @@ export function PlainReader() {
       */}
       {!atShelf && !journal && pagination ? (
         <footer className="tabular shrink-0 border-t border-ink-800 bg-ink-900 px-3 py-1 text-[10.5px] text-ash-400">
+          {pagination.exact ? '' : '≈ '}
           {pagination.pageCount} pp · {pagination.thicknessMm.toFixed(1)} mm
         </footer>
       ) : null}

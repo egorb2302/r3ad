@@ -403,12 +403,24 @@ function VolumeSection() {
   const metrics = useBook((s) => s.metrics);
   const pagination = useBook((s) => s.pagination);
   const status = useBook((s) => s.status);
+  const progress = useBook((s) => s.progress);
 
   return (
     <Panel title="Volume">
       <Stat
         label="Pages"
-        value={pagination ? pagination.pageCount : status === 'paginating' ? '…' : '—'}
+        value={
+          pagination
+            ? `${pagination.exact ? '' : '≈ '}${pagination.pageCount}`
+            : status === 'paginating'
+              ? '…'
+              : '—'
+        }
+        hint={
+          pagination && !pagination.exact
+            ? 'An estimate: the book is long, and the chapters you are not reading are still being composed'
+            : undefined
+        }
       />
       <Stat label="Sheets" value={pagination ? pagination.sheetCount : '—'} />
       <Stat
@@ -422,7 +434,16 @@ function VolumeSection() {
         value={`${metrics.boxWidthPx}×${metrics.boxHeightPx}`}
         hint="Size of the text block in texture pixels"
       />
-      <Stat label="Composition" value={pagination ? `${Math.round(pagination.tookMs)} ms` : '—'} />
+      <Stat
+        label="Composition"
+        value={
+          !pagination
+            ? '—'
+            : pagination.exact
+              ? `${Math.round(pagination.tookMs)} ms`
+              : `${progress.done} of ${progress.total} chapters`
+        }
+      />
     </Panel>
   );
 }

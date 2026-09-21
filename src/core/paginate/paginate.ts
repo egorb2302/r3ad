@@ -7,8 +7,10 @@
  * начинается с новой страницы.
  */
 import { Compositor } from './compositor';
+import { Ledger, shouldEmit, weigh, type LedgerSpan } from './ledger';
 import type { Chapter } from '../content';
-import type { PageMetrics, Typography } from '../typography';
+import { charsPerPage } from '../library/volume';
+import type { PageMetrics, TextureProfile, Typography } from '../typography';
 import { pagesToSheets, sheetsToThicknessMm } from '../units';
 
 export type { Chapter };
@@ -26,10 +28,20 @@ export interface ChapterSpan {
   title: string;
   startPage: number;
   pageCount: number;
+  /** Число страниц измерено композитором. `false` — оценка по знакам (ленивая вёрстка). */
+  exact: boolean;
+  /** Все главы до этой измерены: номер её первой страницы окончательный. */
+  settled: boolean;
 }
 
 export interface PaginationResult {
   key: string;
+  /**
+   * Книга свёрстана целиком. `false` бывает только у ленивой вёрстки (§21.5):
+   * часть глав оценена, число страниц и толщина — тоже оценка, и за этим
+   * результатом придёт следующий с тем же `key`.
+   */
+  exact: boolean;
   pageCount: number;
   sheetCount: number;
   thicknessMm: number;
@@ -142,6 +154,8 @@ export async function paginate(
         title: chapter.title,
         startPage: pages.length,
         pageCount: columns,
+        exact: true,
+        settled: true,
       });
 
       for (let c = 0; c < columns; c++) {
@@ -160,6 +174,7 @@ export async function paginate(
 
   return {
     key: paginationKey(contentHash(chapters), metrics, typography),
+    exact: true,
     pageCount: pages.length,
     sheetCount,
     thicknessMm: sheetsToThicknessMm(sheetCount),
@@ -167,4 +182,159 @@ export async function paginate(
     chapters: spans,
     tookMs: performance.now() - started,
   };
+}
+
+/* ─── Ленивая вёрстка (SPEC §21.5) ──────────────────────────────────────── */
+
+/**
+ * С какого объёма книга верстается лениво.
+ *
+ * Знаки — потому что цена вёрстки меряется ими, а не мегабайтами: текст на
+ * 3.2 млн знаков весит полтора мегабайта и верстается 1.4 с на десктопе — всё
+ * это время на столе нет ни одной страницы. На телефоне та же работа идёт
+ * вчетверо-вшестеро дольше, отсюда второй порог. Байты — для книг, у которых
+ * дорог не текст, а картинки: их разметка заливается в композитор целиком.
+ *
+ * Ниже порогов всё по-прежнему: книга верстается разом, числа в ней точные с
+ * первой секунды, и смена кегля перевёрстывает её одним движением.
+ */
+export const LAZY = {
+  chars: 1_500_000,
+  charsMobile: 500_000,
+  sourceBytes: 20 * 1024 * 1024,
+  imageBytes: 8 * 1024 * 1024,
+} as const;
+
+export function wantsLazy(
+  doc: { charCount: number; sourceBytes: number; imageBytes: number },
+  profile: TextureProfile,
+): boolean {
+  return (
+    doc.charCount > (profile === 'mobile' ? LAZY.charsMobile : LAZY.chars) ||
+    doc.sourceBytes > LAZY.sourceBytes ||
+    doc.imageBytes > LAZY.imageBytes
+  );
+}
+
+export interface LazyOptions extends PaginateOptions {
+  /** Глава, на которой стоит читатель. Спрашивается перед каждой главой заново. */
+  focus?: () => string | null | undefined;
+  /** Промежуточный результат: книгу уже можно листать, числа в ней ещё оценка. */
+  onUpdate?: (partial: PaginationResult) => void;
+  /** Не чаще какого срока обновлять числа, пока читателя это не касается. */
+  everyMs?: number;
+  /**
+   * Чем мерить главу. По умолчанию — композитором; подменяется в тестах, где
+   * вёрстки нет: правила порядка и показа от неё не зависят.
+   */
+  measure?: (chapter: Chapter) => number;
+}
+
+type IdleWindow = typeof globalThis & {
+  requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+};
+
+/**
+ * Пауза между главами, когда книгу уже читают.
+ *
+ * До первой страницы спешим (`yieldToBrowser`), после — уступаем: вёрстка
+ * главы занимает десятки миллисекунд, и подряд они съедали бы кадры у
+ * переворота листа. Простой ждём не дольше 120 мс, а в скрытой вкладке не
+ * ждём вовсе — там он не наступает (см. выше про requestAnimationFrame).
+ */
+const whenIdle = () => {
+  const w = globalThis as IdleWindow;
+  const hidden = typeof document !== 'undefined' && document.hidden;
+  if (hidden || !w.requestIdleCallback) return yieldToBrowser();
+  return new Promise<void>((resolve) => w.requestIdleCallback!(() => resolve(), { timeout: 120 }));
+};
+
+function resultOf(
+  key: string,
+  spans: LedgerSpan[],
+  exact: boolean,
+  tookMs: number,
+): PaginationResult {
+  const pages: PageRef[] = [];
+  for (const span of spans) {
+    for (let c = 0; c < span.pageCount; c++) {
+      pages.push({ index: pages.length, chapterId: span.id, column: c });
+    }
+  }
+  const sheetCount = pagesToSheets(pages.length);
+
+  return {
+    key,
+    exact,
+    pageCount: pages.length,
+    sheetCount,
+    thicknessMm: sheetsToThicknessMm(sheetCount),
+    pages,
+    chapters: spans,
+    tookMs,
+  };
+}
+
+/**
+ * Вёрстка, которая не заставляет ждать всю книгу.
+ *
+ * Первой верстается глава читателя — и книга сразу ложится на стол: остальные
+ * главы в ней оценены по знакам (`Ledger`), а страница оценённой главы всё
+ * равно печатается настоящей, потому что печать верстает главу сама. Дальше
+ * главы измеряются по порядку в простое, оценки заменяются числами, и
+ * результат время от времени отдаётся наружу — по правилу `shouldEmit`, которое
+ * бережёт страницу под читателем. Последний результат точный и ничем не
+ * отличается от того, что дала бы обычная `paginate`.
+ */
+export async function paginateLazily(
+  chapters: Chapter[],
+  metrics: PageMetrics,
+  typography: Typography,
+  options: LazyOptions = {},
+): Promise<PaginationResult> {
+  const started = performance.now();
+  const key = paginationKey(contentHash(chapters), metrics, typography);
+  const everyMs = options.everyMs ?? 300;
+  const ledger = new Ledger(chapters.map(weigh), charsPerPage(metrics));
+
+  const compositor = options.measure ? null : new Compositor(metrics, typography);
+  const measure =
+    options.measure ??
+    ((chapter: Chapter) => {
+      compositor!.setContent(chapter.html);
+      return compositor!.count();
+    });
+
+  const snapshot = () => resultOf(key, ledger.spans(), ledger.done, performance.now() - started);
+
+  let lastEmit = performance.now();
+  let reading = false;
+
+  try {
+    for (;;) {
+      if (options.signal?.aborted) throw new DOMException('Pagination aborted', 'AbortError');
+
+      // Читателя, про которого ничего не известно, считаем стоящим в начале.
+      const focus = Math.max(0, ledger.indexOf(options.focus?.()));
+      const index = ledger.next(focus);
+      if (index === null) break;
+
+      ledger.resolve(index, measure(chapters[index]));
+      options.onProgress?.(ledger.resolved, ledger.size);
+      if (ledger.done) break;
+
+      const now = performance.now();
+      if (shouldEmit(ledger, index, focus, now - lastEmit, everyMs)) {
+        options.onUpdate?.(snapshot());
+        lastEmit = now;
+        reading = true;
+      }
+
+      await (reading ? whenIdle() : yieldToBrowser());
+    }
+  } finally {
+    compositor?.destroy();
+  }
+
+  return snapshot();
 }

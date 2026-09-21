@@ -116,7 +116,7 @@ export function Topbar() {
                     : status === 'error'
                       ? 'error'
                       : pagination
-                        ? `${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
+                        ? `${pagination.exact ? '' : '≈ '}${pagination.pageCount} pp · ${pagination.thicknessMm.toFixed(1)} mm`
                         : 'preparing'}
           </span>
         )}

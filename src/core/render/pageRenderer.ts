@@ -66,6 +66,17 @@ export class PageRenderer {
     this.compositor = new Compositor(metrics, typography);
   }
 
+  /**
+   * Та же вёрстка, уточнённые числа (ленивая разбивка, §21.5).
+   *
+   * Композитор и загруженная глава остаются как есть: набор не менялся,
+   * поменялось только то, какой номер у какой колонки. Работы в очереди
+   * прочтут новую разбивку сами — они смотрят в неё в момент печати.
+   */
+  setPagination(pagination: PaginationResult) {
+    this.pagination = pagination;
+  }
+
   render(pageIndex: number): Promise<RenderedPage> {
     const job = this.queue.then(() => this.renderNow(pageIndex));
     // Упавшая страница не должна вставать поперёк очереди для остальных.

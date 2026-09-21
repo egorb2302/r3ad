@@ -15,6 +15,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { firstChangedPage } from '@/core/paginate/ledger';
+import type { PaginationResult } from '@/core/paginate/paginate';
 import { PageRenderer } from '@/core/render/pageRenderer';
 import { PAPERS, type PaperTint } from '@/core/theme';
 import { releaseCanvas } from '@/core/rasterize/svgRasterizer';
@@ -39,6 +41,17 @@ class TextureCache {
    * предпечати выбивала одну из видимых.
    */
   private pinned = new Set<number>();
+  /**
+   * Страницы, напечатанные по прежней нумерации (ленивая вёрстка, §21.5).
+   *
+   * Текстура такой страницы врёт, но если страница на экране, врать ей лучше,
+   * чем исчезнуть: старая печать висит, пока не приедет новая, и подмена
+   * занимает один кадр вместо чёрного прямоугольника на тридцать миллисекунд.
+   */
+  private stale = new Set<number>();
+  /** Работы, начатые до смены нумерации: их результат уже никому не нужен. */
+  private discarded = new WeakSet<object>();
+  private tokens = new Map<number, object>();
 
   constructor(
     private renderer: PageRenderer,
@@ -56,6 +69,18 @@ class TextureCache {
   /** Что сейчас на экране: это не вытесняется, и на это не считается запас. */
   pin(pages: number[]) {
     this.pinned = new Set(pages);
+
+    // Устаревшая печать жила только ради экрана; ушла с него — ей незачем.
+    for (const index of this.stale) {
+      if (this.pinned.has(index)) continue;
+      const entry = this.entries.get(index);
+      if (entry) {
+        entry.texture.dispose();
+        releaseCanvas(entry.canvas);
+        this.entries.delete(index);
+      }
+      this.stale.delete(index);
+    }
   }
 
   /**
@@ -68,6 +93,40 @@ class TextureCache {
     return Math.max(0, this.cap() - this.pinned.size);
   }
 
+  /** Страница напечатана, и напечатана по нынешней нумерации. */
+  fresh(index: number): boolean {
+    return this.entries.has(index) && !this.stale.has(index);
+  }
+
+  /**
+   * Та же вёрстка, уточнённые числа: всё, что до страницы `from`, осталось
+   * верным, остальное печатается заново. `null` — не изменилось ничего.
+   */
+  adopt(pagination: PaginationResult, from: number | null) {
+    this.renderer.setPagination(pagination);
+    if (from === null) return;
+
+    for (const [index, entry] of this.entries) {
+      if (index < from) continue;
+      if (this.pinned.has(index)) {
+        this.stale.add(index);
+        continue;
+      }
+      entry.texture.dispose();
+      releaseCanvas(entry.canvas);
+      this.entries.delete(index);
+    }
+
+    for (const [index, token] of this.tokens) {
+      if (index < from) continue;
+      this.discarded.add(token);
+      this.tokens.delete(index);
+      this.pending.delete(index);
+    }
+
+    this.onChange(this.entries.size);
+  }
+
   peek(index: number): THREE.Texture | undefined {
     const hit = this.entries.get(index);
     if (!hit) return undefined;
@@ -78,15 +137,31 @@ class TextureCache {
   }
 
   async request(index: number): Promise<THREE.Texture | null> {
-    const hit = this.peek(index);
-    if (hit) return hit;
+    if (this.fresh(index)) return this.peek(index) ?? null;
 
     const inFlight = this.pending.get(index);
     if (inFlight) return inFlight;
 
+    const token = {};
+    this.tokens.set(index, token);
+
     const job = this.renderer
       .render(index)
       .then((page) => {
+        if (this.discarded.has(token)) {
+          releaseCanvas(page.canvas);
+          return null;
+        }
+
+        // Прежняя печать этой страницы дождалась замены — теперь её можно убрать.
+        const old = this.entries.get(index);
+        if (old) {
+          old.texture.dispose();
+          releaseCanvas(old.canvas);
+          this.entries.delete(index);
+        }
+        this.stale.delete(index);
+
         const texture = new THREE.CanvasTexture(page.canvas);
         texture.colorSpace = THREE.SRGBColorSpace;
         texture.generateMipmaps = true;
@@ -109,7 +184,10 @@ class TextureCache {
       })
       .catch(() => null)
       .finally(() => {
-        this.pending.delete(index);
+        if (this.tokens.get(index) === token) {
+          this.tokens.delete(index);
+          this.pending.delete(index);
+        }
       });
 
     this.pending.set(index, job);
@@ -147,6 +225,8 @@ class TextureCache {
     }
     this.entries.clear();
     this.pending.clear();
+    this.tokens.clear();
+    this.stale.clear();
     this.onChange(0);
   }
 }
@@ -166,6 +246,15 @@ const clean = (list: (number | null | undefined)[]) =>
 
 export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
   const pagination = useBook((s) => s.pagination);
+  /*
+   * Ключ вёрстки, а не сама разбивка: ленивая вёрстка (§21.5) отдаёт несколько
+   * результатов подряд с одним ключом, и пересобирать из-за каждого весь кэш
+   * значило бы перепечатывать разворот, на который человек смотрит, раз в треть
+   * секунды. Кэш живёт, пока жива вёрстка; уточнения он принимает ниже.
+   */
+  const layoutKey = pagination?.key ?? null;
+  /** Разбивка, по которой напечатано то, что лежит в кэше. */
+  const adopted = useRef<PaginationResult | null>(null);
   const metrics = useBook((s) => s.metrics);
   const typography = useBook((s) => s.typography);
   const chapters = useBook((s) => s.doc.chapters);
@@ -196,11 +285,13 @@ export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
    * напечатанная на кремовой, на состаренной полке была бы заплаткой.
    */
   useEffect(() => {
-    if (!pagination) return;
+    const current = useBook.getState().pagination;
+    if (!current || !layoutKey) return;
 
-    const renderer = new PageRenderer(chapters, pagination, metrics, typography, PAPERS[tint]);
+    const renderer = new PageRenderer(chapters, current, metrics, typography, PAPERS[tint]);
     const cache = new TextureCache(renderer, limit, noteRender, setLiveTextures);
     cacheRef.current = cache;
+    adopted.current = current;
 
     // Печатаем то, что было заказано у прежнего кэша. Пробуждение — то же, что
     // и в `request`: текстура приезжает асинхронно, и сцену будит её приезд.
@@ -218,7 +309,36 @@ export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
       renderer.destroy();
       cacheRef.current = null;
     };
-  }, [pagination, metrics, typography, chapters, tint, limit, noteRender, setLiveTextures]);
+  }, [layoutKey, metrics, typography, chapters, tint, limit, noteRender, setLiveTextures]);
+
+  /*
+   * Уточнение чисел при той же вёрстке. Страницы до первой разошедшейся
+   * остаются как есть; экранные из остальных перепечатываются — и до приезда
+   * новой печати на них висит старая (см. `stale`).
+   */
+  useEffect(() => {
+    const cache = cacheRef.current;
+    const before = adopted.current;
+    if (!cache || !pagination || !before || before === pagination) return;
+
+    adopted.current = pagination;
+    const from = firstChangedPage(before, pagination);
+    cache.adopt(pagination, from);
+    if (from === null) return;
+
+    let alive = true;
+    cache.pin(wanted.current.needed);
+    for (const index of wanted.current.needed) {
+      if (cache.fresh(index)) continue;
+      void cache.request(index).then(() => {
+        if (alive) bump((v) => v + 1);
+      });
+    }
+
+    return () => {
+      alive = false;
+    };
+  }, [pagination]);
 
   const get = useCallback((index: number | null | undefined) => {
     if (typeof index !== 'number' || index < 0) return null;
@@ -242,7 +362,7 @@ export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
       // выбить, а запас считается уже от остатка.
       cache.pin(want);
       for (const index of want) {
-        if (cache.peek(index)) continue;
+        if (cache.fresh(index)) continue;
         void cache.request(index).then(wake);
       }
 
@@ -258,7 +378,7 @@ export function usePageTextures(tint: PaperTint, limit = 8): PageTextures {
         for (const index of clean(soon)) {
           if (room <= 0) break;
           room -= 1;
-          if (cache.peek(index)) continue;
+          if (cache.fresh(index)) continue;
           void cache.request(index).then(wake);
         }
       });

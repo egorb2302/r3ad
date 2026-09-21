@@ -323,7 +323,9 @@ useBook.subscribe((state, previous) => {
     useLibrary.getState().syncDesk(state.doc, state.docSource);
   }
 
-  if (state.pagination && state.pagination !== previous.pagination) {
+  // Оценка ленивой вёрстки в запись не идёт: у тома на полке «точное число
+  // страниц» обязано быть точным, иначе корешок перестанет ему верить.
+  if (state.pagination?.exact && state.pagination !== previous.pagination) {
     useLibrary
       .getState()
       .noteComposed(

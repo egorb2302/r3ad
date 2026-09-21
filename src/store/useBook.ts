@@ -18,7 +18,13 @@ import {
   type TextureProfile,
   type Typography,
 } from '@/core/typography';
-import { paginate, type PaginationResult } from '@/core/paginate/paginate';
+import {
+  paginate,
+  paginateLazily,
+  wantsLazy,
+  type PaginationResult,
+} from '@/core/paginate/paginate';
+import { anchorOf, sheetOfAnchor } from '@/core/paginate/ledger';
 import { lastSpread } from '@/core/units';
 import type { TurnPlan } from '@/scene/turn';
 import type { VolumeRecord, VolumeSource } from '@/core/library/volume';
@@ -231,7 +237,7 @@ export const useBook = create<BookState>((set, get) => ({
       const local = new AbortController();
       controller = local;
 
-      const { doc, metrics, typography, pagination: previous } = get();
+      const { doc, metrics, typography, profile, pagination: previous } = get();
 
       set({
         status: 'paginating',
@@ -240,36 +246,104 @@ export const useBook = create<BookState>((set, get) => ({
         progress: { done: 0, total: doc.chapters.length },
       });
 
-      paginate(doc.chapters, metrics, typography, {
-        signal: local.signal,
-        onProgress: (done, total) => {
-          if (token === runToken) set({ progress: { done, total } });
-        },
-      })
-        .then((result) => {
-          if (token !== runToken) return;
+      const onProgress = (done: number, total: number) => {
+        if (token === runToken) set({ progress: { done, total } });
+      };
 
-          /**
-           * Прогресс чтения сохраняем долей, а не номером листа: после
-           * перевёрстки листов стало больше или меньше, и абсолютный номер
-           * увёл бы читателя в другое место книги.
-           */
-          const previousLast = previous ? lastSpread(previous.pageCount) : 0;
-          const ratio =
-            keepPosition && previousLast > 0 ? get().currentSheet / previousLast : 0;
-          const sheet = Math.round(ratio * lastSpread(result.pageCount));
+      /*
+       * Большая книга верстается лениво (§21.5): на стол она ложится после
+       * первой же главы, остальное досчитывается, пока её читают. Развилка
+       * здесь, а не внутри вёрстки: у обычной книги числа точные с первой
+       * секунды, и платить за это сложностью ей незачем.
+       */
+      const lazy = wantsLazy(doc, profile);
 
+      /*
+       * Место читателя при смене набора. Якорь — глава и доля в ней, а не доля
+       * листов всей книги: у ленивой вёрстки общего числа листов в этот момент
+       * ещё нет, есть только оценка.
+       */
+      const held = keepPosition && previous ? anchorOf(previous, get().currentSheet) : null;
+      let landed = false;
+
+      /** Промежуточный или последний результат ленивой вёрстки — в стор. */
+      const adopt = (result: PaginationResult) => {
+        if (token !== runToken) return;
+        const state = get();
+
+        if (!landed) {
+          landed = true;
+          const sheet = held ? (sheetOfAnchor(result, held, 'fraction') ?? 0) : 0;
           set({
             pagination: result,
             pages: result.pageCount,
             sheets: result.sheetCount,
             status: 'ready',
             stage: '',
-            currentSheet: sheet,
+            currentSheet: Math.min(sheet, lastSpread(result.pageCount)),
             turn: null,
           });
-        })
-        .catch((err: unknown) => {
+          return;
+        }
+
+        /*
+         * Числа уточнились, вёрстка та же. Читатель остаётся на своей колонке
+         * своей главы; разворот трогаем, только если он и вправду сменился, —
+         * иначе лист, который сейчас в воздухе, упал бы на стол без причины.
+         */
+        const anchor = state.pagination ? anchorOf(state.pagination, state.currentSheet) : null;
+        const moved = anchor ? sheetOfAnchor(result, anchor, 'column') : null;
+        const sheet = Math.min(moved ?? state.currentSheet, lastSpread(result.pageCount));
+
+        set({
+          pagination: result,
+          pages: result.pageCount,
+          sheets: result.sheetCount,
+          ...(sheet === state.currentSheet ? {} : { currentSheet: sheet, turn: null }),
+        });
+      };
+
+      const run = lazy
+        ? paginateLazily(doc.chapters, metrics, typography, {
+            signal: local.signal,
+            onProgress,
+            onUpdate: adopt,
+            // До первой страницы читатель стоит там, где стоял в прежней
+            // разбивке; после — там, где он сейчас в этой.
+            focus: () => {
+              const state = get();
+              const where = landed ? state.pagination : keepPosition ? previous : null;
+              return where ? anchorOf(where, state.currentSheet)?.chapterId : null;
+            },
+          }).then(adopt)
+        : paginate(doc.chapters, metrics, typography, {
+            signal: local.signal,
+            onProgress,
+          }).then((result) => {
+            if (token !== runToken) return;
+
+            /**
+             * Прогресс чтения сохраняем долей, а не номером листа: после
+             * перевёрстки листов стало больше или меньше, и абсолютный номер
+             * увёл бы читателя в другое место книги.
+             */
+            const previousLast = previous ? lastSpread(previous.pageCount) : 0;
+            const ratio =
+              keepPosition && previousLast > 0 ? get().currentSheet / previousLast : 0;
+            const sheet = Math.round(ratio * lastSpread(result.pageCount));
+
+            set({
+              pagination: result,
+              pages: result.pageCount,
+              sheets: result.sheetCount,
+              status: 'ready',
+              stage: '',
+              currentSheet: sheet,
+              turn: null,
+            });
+          });
+
+      run.catch((err: unknown) => {
           if (local.signal.aborted || token !== runToken) return;
           set({ status: 'error', error: err instanceof Error ? err.message : String(err) });
         });
