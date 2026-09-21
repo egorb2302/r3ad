@@ -778,6 +778,8 @@ r3ad/
 │  ├─ ui/                         # навигатор, инспектор, тулбар, палитра
 │  ├─ store/                      # zustand-слайсы
 │  └─ db/                         # Dexie-схема + OPFS
+├─ tests/                         # vitest: ядро, сторы, сервер — без браузера (README, «Проверка»)
+├─ .github/workflows/ci.yml       # tsc, eslint, тесты на каждый пуш
 └─ SPEC.md
 ```
 
